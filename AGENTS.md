@@ -3,6 +3,8 @@
 Sistema interno de agendamentos e gestão para a clínica familiar López + Saúde
 (Fisioterapia, Odontologia, Psicologia). Requisitos completos em `docs/PRD.md` — leia antes de mudanças de escopo.
 
+**Ao começar uma sessão, leia `docs/STATUS.md`:** ele traz o estado atual, a infraestrutura criada e o próximo passo.
+
 ## Stack
 **Instalado (Fase 0):** Next.js 16 (TypeScript strict, App Router, Cache Components) · Tailwind 4 · shadcn/ui (Base UI) · Vitest · Playwright · pnpm.
 **Planejado (a partir da Fase 1, quando os projetos existirem):** deploy na **Vercel** · **Supabase** (Postgres, Auth com MFA, Storage, RLS) · Drizzle ou Prisma · Zod.
