@@ -44,3 +44,10 @@ pnpm-debug.log*
 
 # Claude Code (configuração local)
 .claude/settings.local.json
+
+# Ferramentas (scaffold)
+/.pnp
+.pnp.*
+.yarn/*
+*.pem
+.pnpm-debug.log*
