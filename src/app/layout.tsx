@@ -13,7 +13,7 @@ const fredoka = Fredoka({
 });
 
 export const metadata: Metadata = {
-  title: "López + Saúde",
+  title: { default: "López + Saúde", template: "%s · López + Saúde" },
   description: "Agendamentos e gestão da clínica López + Saúde",
 };
 
