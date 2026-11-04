@@ -1,0 +1,46 @@
+# Segredos e variáveis de ambiente
+.env
+.env.*
+!.env.example
+
+# Dependências e builds
+node_modules/
+.next/
+out/
+build/
+dist/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# Vercel / Supabase local
+.vercel/
+supabase/.branches/
+supabase/.temp/
+
+# Testes (Playwright)
+playwright-report/
+test-results/
+blob-report/
+
+# Backups e dados (nunca versionar dados de pacientes)
+backups/
+*.dump
+*.sql.gz
+*.sql.enc
+*.bak
+exports/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Sistema e editores
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Claude Code (configuração local)
+.claude/settings.local.json
