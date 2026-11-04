@@ -4,9 +4,10 @@
 
 /*
  * Identidade López + Saúde
- * Marca: amarelo #F8CE2E + preto #111111. Sempre TEXTO PRETO sobre amarelo
+ * Marca: amarelo #F7CB2C + preto #111111. Sempre TEXTO PRETO sobre amarelo
  * (contraste ~12:1). Nunca texto amarelo sobre fundo branco.
- * Confirmar o hex exato do amarelo com o arquivo original da logo (PRD, seção 7).
+ * O amarelo foi medido na logo (public/brand/logo.png); se o arquivo original
+ * (SVG) trouxer outro valor, atualize só o token --brand.
  */
 
 @theme inline {
@@ -61,7 +62,7 @@
 }
 
 :root {
-  --brand: #f8ce2e;
+  --brand: #f7cb2c;
   --brand-foreground: #111111;
 
   --background: #fafaf7;
@@ -87,7 +88,7 @@
   --sidebar: var(--brand);
   --sidebar-foreground: #111111;
   --sidebar-primary: #111111;
-  --sidebar-primary-foreground: #f8ce2e;
+  --sidebar-primary-foreground: #f7cb2c;
   --sidebar-accent: #fbdc6b;
   --sidebar-accent-foreground: #111111;
   --sidebar-border: #e0b81c;
