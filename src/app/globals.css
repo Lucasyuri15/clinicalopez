@@ -88,7 +88,7 @@
   --sidebar: var(--brand);
   --sidebar-foreground: #111111;
   --sidebar-primary: #111111;
-  --sidebar-primary-foreground: #f7cb2c;
+  --sidebar-primary-foreground: var(--brand);
   --sidebar-accent: #fbdc6b;
   --sidebar-accent-foreground: #111111;
   --sidebar-border: #e0b81c;

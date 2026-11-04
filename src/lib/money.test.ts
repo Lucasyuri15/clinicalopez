@@ -24,6 +24,15 @@ describe("formatBRL", () => {
     expect(formatBRL(100000000)).toBe(`R$${NBSP}1.000.000,00`);
   });
 
+  test("não exibe sinal negativo para zero negativo", () => {
+    expect(formatBRL(-0)).toBe(`R$${NBSP}0,00`);
+  });
+
+  test("rejeita valores acima do limite de inteiros seguros (perda de precisão)", () => {
+    expect(() => formatBRL(1e20)).toThrow(RangeError);
+    expect(() => formatBRL(Number.MAX_SAFE_INTEGER + 1)).toThrow(RangeError);
+  });
+
   test("rejeita valores que não são centavos inteiros", () => {
     expect(() => formatBRL(10.5)).toThrow(RangeError);
     expect(() => formatBRL(Number.NaN)).toThrow(RangeError);

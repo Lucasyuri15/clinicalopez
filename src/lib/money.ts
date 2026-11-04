@@ -8,8 +8,11 @@ const brl = new Intl.NumberFormat("pt-BR", {
  * Dinheiro é sempre guardado em centavos; a formatação só acontece na exibição.
  */
 export function formatBRL(cents: number): string {
-  if (!Number.isInteger(cents)) {
-    throw new RangeError("O valor deve ser um número inteiro de centavos.");
+  if (!Number.isSafeInteger(cents)) {
+    throw new RangeError(
+      "O valor deve ser um número inteiro seguro de centavos.",
+    );
   }
-  return brl.format(cents / 100);
+  // `+ 0` normaliza -0 para 0, evitando "-R$ 0,00".
+  return brl.format((cents + 0) / 100);
 }

@@ -29,15 +29,22 @@ describe("datetime (America/Sao_Paulo)", () => {
     expect(formatDateTimeBR("2027-01-01T02:59:00Z")).toBe("31/12/2026 23:59");
   });
 
-  test("não depende do fuso da máquina que executa", () => {
-    const previous = process.env.TZ;
-    process.env.TZ = "Asia/Tokyo";
-    try {
-      expect(formatDateTimeBR("2026-11-04T17:30:00Z")).toBe("04/11/2026 14:30");
-    } finally {
-      if (previous === undefined) delete process.env.TZ;
-      else process.env.TZ = previous;
-    }
+  test("aceita offset explícito e converte para Brasília", () => {
+    expect(formatDateTimeBR("2026-11-04T14:30:00-03:00")).toBe(
+      "04/11/2026 14:30",
+    );
+    // 02:30 em UTC+9 do dia 05 = 17:30 UTC do dia 04
+    expect(formatDateTimeBR("2026-11-05T02:30:00+09:00")).toBe(
+      "04/11/2026 14:30",
+    );
+  });
+
+  test("rejeita texto sem fuso, que dependeria da máquina que executa", () => {
+    // "2026-11-04" seria lido como UTC (um dia a menos em Brasília) e
+    // "2026-11-04T10:00:00" no fuso local do servidor/navegador.
+    expect(() => formatDateBR("2026-11-04")).toThrow(RangeError);
+    expect(() => formatDateTimeBR("2026-11-04T10:00:00")).toThrow(RangeError);
+    expect(() => formatTimeBR("2026-11-04T10:00")).toThrow(RangeError);
   });
 
   test("rejeita datas inválidas", () => {

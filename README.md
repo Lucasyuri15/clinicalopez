@@ -36,3 +36,6 @@ pnpm build
 Fase 0 (fundação): layout responsivo com identidade visual e telas provisórias.
 Ainda **sem login e sem banco de dados**; eles entram na Fase 1, quando os projetos
 Vercel e Supabase estiverem criados.
+
+> **Não publique esta versão na internet.** As telas não exigem autenticação; o deploy
+> só deve acontecer depois do login da Fase 1.
