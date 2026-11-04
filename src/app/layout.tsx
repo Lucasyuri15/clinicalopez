@@ -15,6 +15,7 @@ const fredoka = Fredoka({
 export const metadata: Metadata = {
   title: { default: "López + Saúde", template: "%s · López + Saúde" },
   description: "Agendamentos e gestão da clínica López + Saúde",
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
