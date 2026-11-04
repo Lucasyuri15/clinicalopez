@@ -44,3 +44,6 @@ pnpm-debug.log*
 
 # Claude Code (configuração local)
 .claude/settings.local.json
+
+# Chaves e certificados
+*.pem
