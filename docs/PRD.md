@@ -1,6 +1,6 @@
 # PRD — Sistema de Agendamentos López + Saúde
 
-**Versão:** 0.3 (rascunho) · **Data:** 2026-11-04 · **Status:** Em refinamento — hospedagem definida: **Vercel + Supabase**
+**Versão:** 0.4 (rascunho) · **Data:** 2026-11-04 · **Status:** Em refinamento — hospedagem definida: **Vercel + Supabase**; Fase 0 (fundação) implementada na branch `feat/fase-0-fundacao`
 
 ---
 
@@ -170,10 +170,10 @@ Detalhes (UI kit, biblioteca de calendário, testes) serão definidos na fase de
 ## 7. Identidade visual
 
 - Logo recebida: texto **"LOPEZ + SAÚDE"** em preto sobre fundo **amarelo vibrante**, com tipografia arredondada, pesada e amigável (sinal "+" como cruz de saúde).
-- **Paleta base (aproximada, a confirmar com o arquivo original):** amarelo ≈ `#F8CE2E` e preto ≈ `#111111`; neutros claros para fundos de tabelas/formulários.
+- **Paleta base:** amarelo **`#F7CB2C`** (medido nos pixels de `logo.png`) e preto `#111111`; neutros claros para fundos de tabelas/formulários. Contraste preto sobre amarelo ≈ 12:1 (WCAG AA/AAA).
 - **Direção:** amarelo como cor de marca (barra lateral, botões primários, destaques) com **texto preto sobre amarelo** — nunca texto amarelo sobre branco (contraste insuficiente). Cores de status (confirmada/falta/cancelada) separadas da cor de marca.
 - **Tipografia:** títulos em fonte arredondada e pesada, semelhante à logo (sugestão: Fredoka ou Baloo 2); corpo em fonte sem serifa legível (sugestão: Inter).
-- **Pendente:** arquivo original da logo (idealmente SVG/PNG de alta resolução com fundo transparente) em `/docs/brand/`, e confirmação do hex exato do amarelo. Tokens de cor/tipografia centralizados no tema.
+- **Pendente:** arquivo original da logo (idealmente SVG, ou PNG de alta resolução com fundo transparente) em `/docs/brand/`; hoje usamos o PNG 640×640 enviado. Tokens de cor/tipografia centralizados em `src/app/globals.css`.
 
 ---
 
@@ -190,8 +190,8 @@ Detalhes (UI kit, biblioteca de calendário, testes) serão definidos na fase de
 
 | Fase | Entrega |
 |---|---|
-| **0 — Fundação** | Projeto Next.js, contas e projetos Vercel + Supabase (produção e dev), ORM/migrações, autenticação com 2FA, RBAC + RLS, identidade visual, layout base mobile-first, cabeçalhos/rate limit, exportação de backup. |
-| **1 — Cadastros** | Pacientes, profissionais (grade de horários), serviços, convênios, usuários. |
+| **0 — Fundação** ✅ | Projeto Next.js 16 (TS strict) com pnpm, Tailwind + shadcn/ui, identidade visual (amarelo `#F7CB2C`, Fredoka/Inter), layout responsivo (sidebar no desktop, gaveta no celular) com telas provisórias, utilitários de moeda (BRL em centavos) e data (Brasília), `noindex` e cabeçalhos de segurança, testes (Vitest + Playwright). **Sem login e sem banco**, por ainda não haver projeto Supabase. |
+| **1 — Cadastros** | **Antes:** contas/projetos Vercel + Supabase (produção e dev), ORM (Drizzle ou Prisma) e migrações, Supabase Auth com 2FA, RBAC + RLS, CSP completa, limite de tentativas de login, exportação de backup. **Depois:** pacientes, profissionais (grade de horários), serviços, convênios, usuários. |
 | **2 — Agenda** | Agendamento com conflito, status, remarcação/cancelamento, visões dia/semana. |
 | **3 — Recorrência e espera** | Pacotes/séries de sessões e lista de espera. |
 | **4 — Prontuário** | Evolução em texto, anexos, auditoria. |
@@ -224,4 +224,4 @@ Detalhes (UI kit, biblioteca de calendário, testes) serão definidos na fase de
 3. **Domínio:** domínio próprio (ex.: `app.lopezmaissaude.com.br`) e quem administra o DNS.
 4. **Backup externo:** onde guardar a exportação criptografada periódica e quem verifica os alertas.
 5. **2FA:** confirmar app autenticador para cada usuário (e política de recuperação de acesso).
-6. **Logo original** (SVG/PNG alta resolução) e hex exato do amarelo.
+6. **Logo original** (SVG ou PNG de alta resolução). O hex do amarelo já foi medido (`#F7CB2C`).

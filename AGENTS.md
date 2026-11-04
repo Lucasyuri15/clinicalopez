@@ -4,21 +4,23 @@ Sistema interno de agendamentos e gestão para a clínica familiar López + Saú
 (Fisioterapia, Odontologia, Psicologia). Requisitos completos em `docs/PRD.md` — leia antes de mudanças de escopo.
 
 ## Stack
-Next.js (TypeScript, App Router) na **Vercel** · **Supabase** (Postgres, Auth com MFA, Storage, RLS) · Drizzle ou Prisma · Tailwind · Vitest · Playwright · pnpm.
+**Instalado (Fase 0):** Next.js 16 (TypeScript strict, App Router, Cache Components) · Tailwind 4 · shadcn/ui (Base UI) · Vitest · Playwright · pnpm.
+**Planejado (a partir da Fase 1, quando os projetos existirem):** deploy na **Vercel** · **Supabase** (Postgres, Auth com MFA, Storage, RLS) · Drizzle ou Prisma · Zod.
 
-> Os comandos abaixo valem a partir da Fase 0. Se algum não existir ainda, crie-o em vez de inventar alternativa e mantenha esta seção atualizada.
+> O Next.js desta versão tem mudanças de API: antes de escrever código de framework, consulte `node_modules/next/dist/docs/` (veja o bloco ao final deste arquivo). Se um comando abaixo ainda não existir, crie-o em vez de inventar alternativa e mantenha esta seção atualizada.
 
 ## Comandos
 ```bash
 pnpm install                 # instala dependências
-pnpm dev                     # app em http://localhost:3000 (usa o projeto Supabase de DEV)
+pnpm dev                     # app em http://localhost:3000
 pnpm build && pnpm start     # build e execução de produção local
 
 pnpm lint                    # ESLint
-pnpm typecheck               # tsc --noEmit
-pnpm test                    # unitários/integração (Vitest)
-pnpm test:e2e                # fluxos completos (Playwright)
+pnpm typecheck               # next typegen && tsc --noEmit
+pnpm test                    # unitários/componentes (Vitest, jsdom)
+pnpm test:e2e                # fluxos completos (Playwright: projetos desktop e mobile; sobe o `pnpm dev`)
 
+# A partir da Fase 1 (ainda NÃO existem):
 pnpm db:generate             # gera migração a partir do schema
 pnpm db:migrate              # aplica migrações (confirme SEMPRE o ambiente alvo: dev x produção)
 pnpm db:seed                 # dados FICTÍCIOS, somente no ambiente de DEV
@@ -28,13 +30,17 @@ pnpm backup                  # exporta banco + anexos criptografados (ver PRD, s
 
 ## Estrutura (alvo)
 ```
-src/app/            rotas e telas (App Router)
+src/app/            rotas e telas (App Router); (app)/ = telas com o shell da clínica
+src/components/     layout/ (shell, menu), ui/ (shadcn), componentes reutilizáveis
+src/lib/            utilitários puros: money (BRL em centavos), datetime (Brasília), navigation (menu)
+src/test/           setup do Vitest
+e2e/                testes Playwright (*.spec.ts)
+docs/               PRD, specs/ e plans/; docs/brand/ identidade visual
+
+# Previsto a partir da Fase 1:
 src/server/         regras de negócio, acesso a dados, autorização
 src/server/db/      schema, migrações, seed
 src/server/storage/ interface de anexos (driver Supabase Storage / S3 no futuro)
-src/components/     UI reutilizável
-src/lib/            utilitários puros (datas, moeda, validação)
-docs/               PRD e documentação; docs/brand/ identidade visual
 ```
 
 ## Convenções
@@ -47,7 +53,7 @@ docs/               PRD e documentação; docs/brand/ identidade visual
 - **Agenda:** conflito de horário (profissional e paciente) é checado no servidor e protegido por constraint/transação no banco, não só na UI.
 - **Portabilidade (PRD 6.1):** configuração só por variáveis de ambiente (`.env`, mantenha `.env.example` atualizado); anexos pela interface de storage; jobs como rotas HTTP protegidas por segredo (Vercel Cron); evite recursos exclusivos da Vercel quando houver alternativa padrão.
 - **Ambientes:** produção (dados reais) e dev/preview (projeto Supabase separado). Dados reais só em produção.
-- **UI:** mobile-first e acessível (WCAG AA). Cores e fontes só via tokens do tema (marca: amarelo ≈ `#F8CE2E` + preto; texto preto sobre amarelo). Cores de status separadas da cor de marca.
+- **UI:** mobile-first e acessível (WCAG AA). Cores e fontes só via tokens do tema (marca: amarelo `#F7CB2C`, medido na logo, + preto `#111111`; texto preto sobre amarelo; token `--brand` em `src/app/globals.css`). Cores de status separadas da cor de marca.
 - **Testes:** obrigatórios para regras de conflito de agenda, recorrência, permissões (RBAC) e cálculo financeiro. Teste novo ao corrigir bug.
 - **Commits:** Conventional Commits (`feat:`, `fix:`, `chore:`…), pequenos e focados.
 - Prefira código simples e dependências já presentes; justifique qualquer biblioteca nova.
