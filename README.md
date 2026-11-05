@@ -21,6 +21,19 @@ Na primeira vez, instale o navegador usado nos testes e2e:
 pnpm exec playwright install chromium
 ```
 
+## Banco de dados (Supabase)
+
+Copie `.env.example` para `.env.local` e preencha `DATABASE_URL`, `DIRECT_URL` e
+`MIGRATION_PROJECT_REF` (nunca versione esse arquivo nem cole os valores em chats ou issues).
+
+```bash
+pnpm db:generate   # gera migração a partir de src/server/db/schema.ts (--custom para SQL à mão)
+pnpm db:migrate    # aplica migrações; recusa se o projeto não for o de MIGRATION_PROJECT_REF
+```
+
+O app acessa o banco só pelo servidor, sob RLS, via `withUser` (ver `AGENTS.md`).
+Sem `.env.local`, os testes de integração do banco são pulados.
+
 ## Verificação
 
 ```bash
@@ -34,8 +47,8 @@ pnpm build
 ## Estado atual
 
 Fase 0 (fundação): layout responsivo com identidade visual e telas provisórias.
-Ainda **sem login e sem banco de dados**; eles entram na Fase 1, quando os projetos
-Vercel e Supabase estiverem criados.
+Fase 1A-1: banco no Supabase (dev) com Drizzle, migrações e RLS aplicada.
+Ainda **sem login**; ele entra na 1A-2. Veja `docs/STATUS.md` para o estado detalhado.
 
-> **Não publique esta versão na internet.** As telas não exigem autenticação; o deploy
-> só deve acontecer depois do login da Fase 1.
+> **Não publique esta versão em produção.** As telas não exigem autenticação; o deploy
+> de produção só deve acontecer depois do login (1A-2).

@@ -1,5 +1,6 @@
 allowBuilds:
   sharp: false
   unrs-resolver: false
+  esbuild: false
 minimumReleaseAgeExclude:
   - next@16.4.5
