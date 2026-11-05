@@ -47,3 +47,6 @@ pnpm-debug.log*
 
 # Chaves e certificados
 *.pem
+
+# E2E: sessões e usuários fictícios gerados pelo projeto setup
+e2e/.auth/
