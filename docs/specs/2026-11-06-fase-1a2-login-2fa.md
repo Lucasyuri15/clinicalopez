@@ -24,4 +24,9 @@ A 1A-1 entregou banco, RLS e `withUser`, mas todas as telas ainda são públicas
 Usuários fictícios criados por SQL em `auth.users` (e-mails `@teste.invalid`), com limpeza (apagar perfil e depois usuário; `sessions`/`mfa_factors`/`identities` têm `ON DELETE CASCADE`). O spike valida o método antes de construir.
 
 ## Resultado do spike
-_A preencher após a tarefa 3._
+Executado em 2026-11-06 contra o projeto dev (script descartável, limpeza verificada: 0 resíduos):
+- **Fixture por SQL funciona:** `auth.users` (com `instance_id` zerado, `encrypted_password` via `extensions.crypt(senha, extensions.gen_salt('bf'))`, `email_confirmed_at`, `raw_app_meta_data` com `provider: email` e **todas as colunas de token como string vazia**, nunca NULL) + `auth.identities` + `public.profiles` permitem `signInWithPassword` normalmente.
+- **JWT:** assinado com **ES256** (assimétrico) ⇒ `getClaims()` verifica localmente pelo JWKS. Campos: `aal, amr, app_metadata, aud, email, exp, iat, is_anonymous, iss, phone, role, session_id, sub, user_metadata`. `amr` é uma lista de objetos com `method` (`password`, `totp`). `getClaims()` devolve `{ claims, header, signature }`.
+- **Níveis (AAL):** sem fator: `aal1`/`aal1`. Após `enroll` + `challenge` + `verify` (código gerado com `otpauth`): `aal2`/`aal2`, `amr = ["totp","password"]`, e `getClaims()` já reflete `aal2` na mesma sessão. Logo `nextAuthStep`: `aal2` → app; `aal1` com `nextLevel=aal2` → verificar; `aal1` com `nextLevel=aal1` → cadastrar.
+- **`mfa.enroll`** devolve `id`, `type`, `friendly_name` e `totp: { qr_code (data URI SVG), secret, uri }`; `listFactors` traz `status` por fator (permite achar fatores não verificados).
+- **Plano B de fixture não foi necessário.**
