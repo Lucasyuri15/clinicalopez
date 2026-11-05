@@ -215,8 +215,8 @@ describe.skipIf(!hasDb)("RLS de profiles (integração, Supabase dev)", () => {
       });
     });
 
-    it("admin inativo não cria nem altera perfis", async () => {
-      await inTx(async ({ tx, ids, as, asOwner }) => {
+    it("admin inativo não cria perfis", async () => {
+      await inTx(async ({ tx, ids, as }) => {
         await as(ids.inactiveAdmin);
         let code: string | undefined;
         try {

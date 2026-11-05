@@ -46,14 +46,12 @@ export function parsePublicEnv(
   };
 }
 
-let cached: PublicSupabaseEnv | undefined;
-
 export function getPublicEnv(): PublicSupabaseEnv {
   // Acesso LITERAL: o Next só inlina NEXT_PUBLIC_* quando o nome aparece por extenso.
-  cached ??= parsePublicEnv({
+  // Sem cache: o parse é barato e assim uma variável ausente nunca passa despercebida.
+  return parsePublicEnv({
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
   });
-  return cached;
 }
