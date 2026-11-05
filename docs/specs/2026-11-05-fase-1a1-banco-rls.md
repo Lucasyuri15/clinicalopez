@@ -37,4 +37,7 @@ Sem Docker. Testes de integração rodam contra o Supabase **dev**, dentro de tr
 - Free tier pausa projetos inativos: pode ser preciso restaurar antes dos testes.
 
 ## Resultado do spike
-_A preencher após a tarefa 0._
+Executado em 2026-11-05 contra o projeto dev (Postgres 17.11, pooler `aws-1-sa-east-1`):
+- **Rede:** a conexão direta (`db.<ref>.supabase.co`) falha com `ENOTFOUND` (só IPv6 no plano Free; a rede de desenvolvimento não tem IPv6). **Decisão:** `DIRECT_URL` usa a **Session pooler** (mesmo host do pooler, porta 5432, usuário `postgres.<ref>`), que serve para migrações. `DATABASE_URL` usa a Transaction pooler (porta 6543).
+- **(b) Troca de papel — OK:** via Transaction pooler, `set local role authenticated` + `set_config('request.jwt.claims', …, true)` funcionam; dentro da transação `current_user = authenticated` e `auth.uid()` devolve o ID informado; depois dela o papel volta ao da conexão (não vaza entre requisições).
+- **(a) Login como `app_backend` — pendente:** o papel só existe depois da migração base (tarefa 3). Reavaliar então; se falhar, vale o plano B acima.
