@@ -4,6 +4,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { connection } from "next/server";
 
+import { finalizeCookieOptions, sessionCookieOptions } from "./cookie-options";
 import { getPublicEnv } from "./env";
 
 /**
@@ -20,12 +21,13 @@ export async function createSupabaseServerClient() {
   const { url, publishableKey } = getPublicEnv();
 
   return createServerClient(url, publishableKey, {
+    cookieOptions: sessionCookieOptions(process.env.NODE_ENV),
     cookies: {
       getAll: () => cookieStore.getAll(),
       setAll(cookiesToSet) {
         try {
           cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options),
+            cookieStore.set(name, value, finalizeCookieOptions(options, process.env.NODE_ENV)),
           );
         } catch {
           // Chamado de um Server Component: ignorar (o proxy renova a sessão).

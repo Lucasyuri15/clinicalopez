@@ -30,8 +30,9 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Exclui estáticos do Next e assets públicos (logo, ícone, robots).
+  // Exclui só estáticos do Next e assets públicos EXATOS (logo, ícone, robots). Os nomes
+  // são ancorados (`$` / `/`): "/robots.txtX" ou "/icon.pngfoo" NÃO escapam do proxy.
   matcher: [
-    "/((?!_next/static|_next/image|robots.txt|icon.png|favicon.ico|brand/).*)",
+    "/((?!_next/static/|_next/image$|robots\\.txt$|icon\\.png$|favicon\\.ico$|brand/).*)",
   ],
 };

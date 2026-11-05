@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import type { Aal } from "@/lib/auth/route-guard";
 
+import { finalizeCookieOptions, sessionCookieOptions } from "./cookie-options";
 import { getPublicEnv } from "./env";
 
 /**
@@ -20,6 +21,7 @@ export async function updateSession(
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(url, publishableKey, {
+    cookieOptions: sessionCookieOptions(process.env.NODE_ENV),
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll(cookiesToSet, headers) {
@@ -27,7 +29,7 @@ export async function updateSession(
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
         response = NextResponse.next({ request });
         cookiesToSet.forEach(({ name, value, options }) =>
-          response.cookies.set(name, value, options),
+          response.cookies.set(name, value, finalizeCookieOptions(options, process.env.NODE_ENV)),
         );
         // Respostas que definem cookies de sessão nunca podem ser cacheadas.
         Object.entries(headers).forEach(([key, value]) =>

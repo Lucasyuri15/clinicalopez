@@ -13,26 +13,30 @@ const state = vi.hoisted(() => ({
     error: unknown;
   },
   refreshCookies: false,
+  lastOptions: undefined as { cookieOptions?: Record<string, unknown> } | undefined,
 }));
 
 vi.mock("@supabase/ssr", () => ({
   createServerClient: (
     _url: string,
     _key: string,
-    options: { cookies: { setAll: SetAll } },
-  ) => ({
+    options: { cookies: { setAll: SetAll }; cookieOptions?: Record<string, unknown> },
+  ) => {
+    state.lastOptions = options;
+    return {
     auth: {
       getClaims: async () => {
         if (state.refreshCookies) {
           options.cookies.setAll(
-            [{ name: "sb-teste-auth-token", value: "novo", options: { path: "/" } }],
+            [{ name: "sb-teste-auth-token", value: "novo", options: { path: "/", httpOnly: false, maxAge: 400 * 24 * 60 * 60 } }],
             { "cache-control": "private, no-cache, no-store, must-revalidate, max-age=0" },
           );
         }
         return state.claimsResult;
       },
     },
-  }),
+    };
+  },
 }));
 
 import { config, proxy } from "./proxy";
@@ -97,7 +101,18 @@ describe("proxy", () => {
     const response = await call("/dashboard");
     expect(response.status).toBe(307);
     expect(response.cookies.get("sb-teste-auth-token")?.value).toBe("novo");
+    // a biblioteca manda 400 dias e HttpOnly=false: o proxy impõe as opções seguras
+    expect(response.cookies.get("sb-teste-auth-token")).toMatchObject({ httpOnly: true, maxAge: 8 * 60 * 60 });
     expect(response.headers.get("cache-control")).toContain("no-store");
+  });
+
+  it("usa cookies de sessão HttpOnly, SameSite=Lax e de curta duração", async () => {
+    await call("/login");
+    expect(state.lastOptions?.cookieOptions).toMatchObject({
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 8 * 60 * 60,
+    });
   });
 
   it("sem as variáveis do Supabase falha em vez de liberar (falha fechada)", async () => {
@@ -106,12 +121,26 @@ describe("proxy", () => {
   });
 });
 
-describe("config.matcher", () => {
-  it("exclui estáticos e assets públicos e cobre as demais rotas", () => {
-    const [pattern] = config.matcher;
-    expect(pattern).toContain("_next/static");
-    expect(pattern).toContain("_next/image");
-    expect(pattern).toContain("robots.txt");
-    expect(pattern).toContain("brand/");
+describe("config.matcher (avaliado como regex de verdade)", () => {
+  const [pattern = ""] = config.matcher;
+  // O corpo do matcher é uma regex comum; o Next a ancora no caminho inteiro.
+  const proxied = (path: string) => new RegExp(`^${pattern}$`).test(path);
+
+  it("passa pelo proxy tudo que não é um asset público conhecido", () => {
+    for (const path of ["/", "/dashboard", "/mfa/enroll", "/qualquer-coisa", "//dashboard", "/%2e/dashboard"]) {
+      expect(proxied(path), path).toBe(true);
+    }
+  });
+
+  it("NÃO deixa o proxy de fora por prefixo parecido (bypass por nome de rota)", () => {
+    for (const path of ["/robots.txtX", "/robots-txt", "/icon.pngfoo", "/favicon.icoX", "/_next/staticX", "/_next/image/x", "/brandX/a"]) {
+      expect(proxied(path), path).toBe(true);
+    }
+  });
+
+  it("exclui só os assets públicos exatos", () => {
+    for (const path of ["/robots.txt", "/icon.png", "/favicon.ico", "/_next/static/chunks/a.js", "/_next/image", "/brand/logo.png"]) {
+      expect(proxied(path), path).toBe(false);
+    }
   });
 });
