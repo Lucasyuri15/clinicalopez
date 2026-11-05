@@ -5,7 +5,6 @@ const auth = vi.hoisted(() => ({
   signOut: vi.fn(),
   getClaims: vi.fn(),
   mfa: {
-    getAuthenticatorAssuranceLevel: vi.fn(),
     listFactors: vi.fn(),
     unenroll: vi.fn(),
     enroll: vi.fn(),
@@ -57,11 +56,18 @@ const withSession = (aal: string | null) =>
   auth.getClaims.mockResolvedValue(
     aal ? { data: { claims: { sub: "u1", aal } }, error: null } : { data: null, error: null },
   );
-const withLevels = (currentLevel: string, nextLevel: string) =>
-  auth.mfa.getAuthenticatorAssuranceLevel.mockResolvedValue({
-    data: { currentLevel, nextLevel },
+// O passo vem de fontes AUTORITATIVAS: `aal` do JWT verificado (getClaims) e os fatores
+// verificados do servidor (listFactors). `nextLevel === "aal2"` = existe fator verificado.
+const withLevels = (currentLevel: string, nextLevel: string) => {
+  withSession(currentLevel);
+  auth.mfa.listFactors.mockResolvedValue({
+    data: {
+      all: nextLevel === "aal2" ? [{ id: FACTOR_ID, status: "verified" }] : [],
+      totp: nextLevel === "aal2" ? [{ id: FACTOR_ID, status: "verified" }] : [],
+    },
     error: null,
   });
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -124,7 +130,8 @@ describe("login", () => {
 
   it("se não conseguir ler o nível, manda para /mfa (nunca direto ao app)", async () => {
     auth.signInWithPassword.mockResolvedValue({ data: {}, error: null });
-    auth.mfa.getAuthenticatorAssuranceLevel.mockResolvedValue({ data: null, error: new Error("x") });
+    withSession("aal1");
+    auth.mfa.listFactors.mockResolvedValue({ data: null, error: new Error("x") });
     expect(await redirectedTo(login(undefined, form({ email: "a@b.co", password: "x" })))).toBe("/mfa");
   });
 });
@@ -132,7 +139,7 @@ describe("login", () => {
 describe("startMfaEnroll", () => {
   const okEnroll = () =>
     auth.mfa.enroll.mockResolvedValue({
-      data: { id: FACTOR_ID, type: "totp", totp: { qr_code: "data:image/svg+xml;utf-8,<svg/>", secret: "ABCDEF", uri: "otpauth://x" } },
+      data: { id: FACTOR_ID, type: "totp", totp: { qr_code: "data:image/svg+xml;utf-8,<svg/>\n", secret: "ABCDEF", uri: "otpauth://x" } },
       error: null,
     });
 
@@ -164,7 +171,6 @@ describe("startMfaEnroll", () => {
         all: [
           { id: "old-1", status: "unverified", factor_type: "totp" },
           { id: "old-2", status: "unverified", factor_type: "totp" },
-          { id: "keep", status: "verified", factor_type: "totp" },
         ],
         totp: [],
       },
@@ -182,12 +188,22 @@ describe("startMfaEnroll", () => {
     expect(await startMfaEnroll()).toEqual({
       ok: true,
       factorId: FACTOR_ID,
-      qrCode: "data:image/svg+xml;utf-8,<svg/>",
+      // normalizado: codificado e sem a quebra de linha que o Supabase manda no fim
+      qrCode: `data:image/svg+xml;charset=utf-8,${encodeURIComponent("<svg/>")}`,
       secret: "ABCDEF",
     });
     expect(auth.mfa.enroll).toHaveBeenCalledWith(
       expect.objectContaining({ factorType: "totp", issuer: "López + Saúde" }),
     );
+  });
+
+  it("recusa QR que não seja uma imagem SVG", async () => {
+    withLevels("aal1", "aal1");
+    auth.mfa.enroll.mockResolvedValue({
+      data: { id: FACTOR_ID, type: "totp", totp: { qr_code: "javascript:alert(1)", secret: "ABCDEF", uri: "x" } },
+      error: null,
+    });
+    expect(await startMfaEnroll()).toEqual({ ok: false, error: "Não foi possível gerar o QR Code. Tente novamente." });
   });
 
   it("erro do Supabase vira mensagem genérica, sem vazar detalhes", async () => {

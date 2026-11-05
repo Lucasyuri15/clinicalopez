@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
+import { toSvgDataUri } from "@/lib/auth/qr";
 import { loginSchema, totpCodeSchema } from "@/lib/auth/schemas";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -54,8 +55,6 @@ async function requireStep(
   supabase: SupabaseServerClient,
   expected: "mfa-enroll" | "mfa-verify",
 ): Promise<void> {
-  const { data, error } = await supabase.auth.getClaims();
-  if (error || !data?.claims) redirect("/login");
   const step = await readAuthStep(supabase);
   if (step === null) redirect("/mfa");
   if (step !== expected) redirect(STEP_PATHS[step]);
@@ -103,12 +102,15 @@ export async function startMfaEnroll(): Promise<EnrollStartResult> {
     factorType: "totp",
     issuer: "López + Saúde",
   });
-  if (error || !data) return { ok: false, error: MESSAGES.enrollFailed };
+  const qrCode = data ? toSvgDataUri(data.totp.qr_code) : null;
+  if (error || !data || !qrCode) {
+    return { ok: false, error: MESSAGES.enrollFailed };
+  }
 
   return {
     ok: true,
     factorId: data.id,
-    qrCode: data.totp.qr_code,
+    qrCode,
     secret: data.totp.secret,
   };
 }

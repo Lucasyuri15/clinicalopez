@@ -24,6 +24,13 @@ const nextConfig: NextConfig = {
   /* config options here */
   cacheComponents: true,
   partialPrefetching: true,
+  // As telas autenticadas leem sessão (cookies) e banco, então a navegação até elas passa
+  // pelo servidor. Validar "navegação instantânea" em TODA página só gera ruído no dev;
+  // validamos só o que exporta `instant`. O `next build` continua barrando leitura de
+  // cookies fora de <Suspense>. Revisar se um dia cachearmos a sessão (`use cache: private`).
+  experimental: {
+    instantInsights: { validationLevel: "manual-warning" },
+  },
   poweredByHeader: false,
   async redirects() {
     return [{ source: "/", destination: "/dashboard", permanent: false }];

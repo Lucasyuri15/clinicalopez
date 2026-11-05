@@ -2,6 +2,7 @@ import "server-only";
 
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { connection } from "next/server";
 
 import { getPublicEnv } from "./env";
 
@@ -12,6 +13,9 @@ import { getPublicEnv } from "./env";
  * o try/catch evita erro e o proxy cuida da renovação.
  */
 export async function createSupabaseServerClient() {
+  // A verificação do token usa a hora atual (Date.now): com Cache Components isso
+  // não pode acontecer durante o pré-render. `connection()` adia para a requisição.
+  await connection();
   const cookieStore = await cookies();
   const { url, publishableKey } = getPublicEnv();
 
