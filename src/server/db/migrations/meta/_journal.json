@@ -15,6 +15,13 @@
       "when": 1793884916470,
       "tag": "0001_access_control",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793885577495,
+      "tag": "0002_harden_access",
+      "breakpoints": true
     }
   ]
 }
