@@ -145,7 +145,7 @@ Filtros por período, especialidade e profissional.
 | Front-end/Back-end | **Next.js** (TypeScript, App Router), web responsivo mobile-first |
 | Hospedagem da app | **Vercel** (plano Pro), funções na região `gru1` (São Paulo) |
 | Banco | **Supabase Postgres**, região `sa-east-1`, com *connection pooling* para ambiente serverless |
-| ORM/migrações | **Drizzle** ou **Prisma**; migrações versionadas (incluindo as políticas de RLS em SQL) |
+| ORM/migrações | **Drizzle** (decidido na Fase 1A-1); migrações versionadas (incluindo as políticas de RLS em SQL). O app conecta com o papel `app_backend` (sem BYPASSRLS) e cada requisição assume o papel `authenticated` com o usuário logado, para a RLS valer de verdade; migrações usam o papel `postgres`. Ver `docs/specs/2026-11-05-fase-1a1-banco-rls.md` |
 | Autenticação | **Supabase Auth** com **MFA (TOTP)**; usuários criados somente pelo admin |
 | Autorização | RBAC (admin, recepção, profissional) no servidor + **RLS** no banco |
 | Anexos | **Supabase Storage**, buckets privados e URLs assinadas de curta duração |
