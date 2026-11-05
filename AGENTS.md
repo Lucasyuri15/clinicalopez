@@ -7,7 +7,8 @@ Sistema interno de agendamentos e gestão para a clínica familiar López + Saú
 
 ## Stack
 **Instalado (Fase 0):** Next.js 16 (TypeScript strict, App Router, Cache Components) · Tailwind 4 · shadcn/ui (Base UI) · Vitest · Playwright · pnpm.
-**Planejado (a partir da Fase 1, quando os projetos existirem):** deploy na **Vercel** · **Supabase** (Postgres, Auth com MFA, Storage, RLS) · Drizzle ou Prisma · Zod.
+**Instalado (Fase 1A-1):** **Drizzle ORM** + driver `postgres` · **Zod** · `server-only` · banco no **Supabase** (projeto dev) com RLS aplicada.
+**Planejado:** login Supabase Auth com MFA (1A-2) · CSP e limite de tentativas (1A-3) · deploy na **Vercel** · Storage (Fase 4).
 
 > O Next.js desta versão tem mudanças de API: antes de escrever código de framework, consulte `node_modules/next/dist/docs/` (veja o bloco ao final deste arquivo). Se um comando abaixo ainda não existir, crie-o em vez de inventar alternativa e mantenha esta seção atualizada.
 
@@ -22,13 +23,18 @@ pnpm typecheck               # next typegen && tsc --noEmit
 pnpm test                    # unitários/componentes (Vitest, jsdom)
 pnpm test:e2e                # fluxos completos (Playwright: projetos desktop e mobile; sobe o `pnpm dev`)
 
-# A partir da Fase 1 (ainda NÃO existem):
-pnpm db:generate             # gera migração a partir do schema
-pnpm db:migrate              # aplica migrações (confirme SEMPRE o ambiente alvo: dev x produção)
-pnpm db:seed                 # dados FICTÍCIOS, somente no ambiente de DEV
+pnpm db:generate             # gera migração a partir do schema (use --custom para SQL à mão: RLS, grants, funções)
+pnpm db:migrate              # aplica migrações via DIRECT_URL; RECUSA se o projeto não for o de MIGRATION_PROJECT_REF
+
+# Ainda NÃO existem:
+pnpm db:seed                 # dados FICTÍCIOS, somente no ambiente de DEV (previsto na 1A-2)
 pnpm backup                  # exporta banco + anexos criptografados (ver PRD, seção 5)
 ```
 **Antes de dizer que terminou:** `pnpm lint && pnpm typecheck && pnpm test` devem passar. Mudanças de fluxo/UI: rode também `pnpm test:e2e` e confira no navegador (desktop e celular).
+
+**Testes de integração do banco** (`src/server/db/*.test.ts`) rodam contra o Supabase **dev** usando o `.env.local`, em transações sempre revertidas e só com dados fictícios. Sem `.env.local` eles são **pulados** (a suíte continua verde). Eles recusam rodar fora do projeto de `MIGRATION_PROJECT_REF`.
+
+**Variáveis (`.env.local`, modelo em `.env.example`):** `DATABASE_URL` (Transaction pooler, porta 6543, usuário `app_backend.<ref>`), `DIRECT_URL` (Session pooler, porta 5432, usuário `postgres.<ref>`; a conexão direta do plano Free é só IPv6) e `MIGRATION_PROJECT_REF`. A senha de `app_backend` é gerada fora do Git, **nunca** vai em migração, chat ou commit.
 
 ## Estrutura (alvo)
 ```
@@ -39,9 +45,13 @@ src/test/           setup do Vitest
 e2e/                testes Playwright (*.spec.ts)
 docs/               PRD, specs/ e plans/; docs/brand/ identidade visual
 
-# Previsto a partir da Fase 1:
-src/server/         regras de negócio, acesso a dados, autorização
-src/server/db/      schema, migrações, seed
+src/server/         código só de servidor (`import "server-only"`): env.ts (variáveis validadas com Zod)
+src/server/db/      schema.ts, migrations/ (SQL versionado), client.ts (cliente cru, PRIVADO),
+                    with-user.ts (`withUser`: único acesso a dados), migration-guard.ts, testes de RLS
+drizzle.config.ts   config do drizzle-kit (usa DIRECT_URL e a trava de projeto)
+
+# Previsto:
+src/server/auth/    login, sessão, 2FA e RBAC (1A-2)
 src/server/storage/ interface de anexos (driver Supabase Storage / S3 no futuro)
 ```
 
@@ -52,6 +62,7 @@ src/server/storage/ interface de anexos (driver Supabase Storage / S3 no futuro)
 - **Auth:** Supabase Auth com MFA obrigatório para admin e profissionais; sem cadastro público (usuários criados pelo admin).
 - **Datas:** salvar em UTC; exibir em `America/Sao_Paulo`. **Dinheiro:** inteiro em centavos, formatar em BRL só na exibição.
 - **Banco:** toda alteração via migração versionada; nunca editar migração já aplicada. Exclusão de dados clínicos é lógica (soft delete) com auditoria.
+- **Acesso a dados (RLS de verdade):** o app conecta como `app_backend` (sem BYPASSRLS, sem privilégios próprios) e **todo** acesso passa por `withUser({ userId }, async (tx) => …)` de `@/server/db/with-user`, que assume o papel `authenticated` com o usuário logado. **Nunca** importe `@/server/db/client` fora de `src/server/db/` (regra ESLint). Toda tabela nova: `.enableRLS()` no schema, `REVOKE` de `anon`/`PUBLIC`, `GRANT` mínimo a `authenticated` e políticas em migração SQL, **com teste de RLS por perfil** (modelo: `rls.test.ts`). O papel do usuário vem de `app.current_app_role()` (lê `profiles`), não do JWT.
 - **Agenda:** conflito de horário (profissional e paciente) é checado no servidor e protegido por constraint/transação no banco, não só na UI.
 - **Portabilidade (PRD 6.1):** configuração só por variáveis de ambiente (`.env`, mantenha `.env.example` atualizado); anexos pela interface de storage; jobs como rotas HTTP protegidas por segredo (Vercel Cron); evite recursos exclusivos da Vercel quando houver alternativa padrão.
 - **Ambientes:** produção (dados reais) e dev/preview (projeto Supabase separado). Dados reais só em produção.
@@ -70,7 +81,7 @@ Adaptado do workflow do projeto [Superpowers](https://github.com/obra/superpower
 **Passos (mudança grande):**
 1. **Entender e questionar (brainstorming).** Antes de qualquer código, leia o que já existe (PRD, código, docs) e não pergunte o que já está respondido. Devolva com suas palavras o que entendeu e o porquê. Faça **uma pergunta por vez**, a de maior impacto. Se algo não for óbvio, apresente 2–3 abordagens com prós e contras e uma recomendação, e espere a escolha.
 2. **Design aprovado.** Registre a decisão em `docs/specs/AAAA-MM-DD-<tema>.md` (curto se for pequeno) e obtenha aprovação antes de planejar. Se mudar o PRD, atualize `docs/PRD.md` na mesma entrega.
-3. **Ambiente isolado.** Trabalhe numa branch própria (git worktree, se possível). Rode a suíte antes de começar para ter uma base verde. *(Pré-requisito: inicializar o repositório git — hoje o projeto ainda não é um.)*
+3. **Ambiente isolado.** Trabalhe numa branch própria (git worktree, se possível). Rode a suíte antes de começar para ter uma base verde.
 4. **Plano em tarefas pequenas.** Salve em `docs/plans/AAAA-MM-DD-<tema>.md`. Cada tarefa: 2–5 minutos, caminhos exatos de arquivos, interfaces/assinaturas, o teste que a prova e o comando de verificação. Princípios: **YAGNI** e **DRY**. Plano com vários subsistemas independentes vira vários planos.
 5. **Executar tarefa a tarefa com TDD.** Ciclo **RED → GREEN → REFACTOR**: escreva o teste, **veja-o falhar pelo motivo certo**, escreva o mínimo para passar, veja passar, refatore. *Sem código de produção sem um teste falhando antes*; se escreveu código antes do teste, descarte e refaça. Exceções (confirme com o usuário): protótipo descartável, código gerado, configuração e ajuste puramente visual.
 6. **Revisão a cada tarefa.** Peça revisão a um subagente com contexto enxuto (descrição, requisitos, diff), não com todo o histórico da sessão. Corrija o que for **crítico** e **importante** antes de seguir; registre os menores. Se o revisor estiver errado, responda com argumento técnico e teste. Tarefa grande ou sensível (RBAC, financeiro, migração): revisão obrigatória; revisão final da branch antes de integrar.
