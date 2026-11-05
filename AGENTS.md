@@ -99,7 +99,7 @@ Adaptado do workflow do projeto [Superpowers](https://github.com/obra/superpower
 - **Nunca** usar dados reais de pacientes em código, testes, seeds, fixtures, prints ou logs. Só dados fictícios.
 - **Nunca** commitar segredos (`.env`, tokens do WhatsApp/Meta, chaves de backup) nem logar dados de saúde ou PII (CPF, telefone, prontuário).
 - **Nunca** contornar ou duplicar a checagem de permissões, nem criar rota/endpoint sem autorização.
-- **Nunca** criar rota pública, desativar RLS, usar a chave `service_role` do Supabase no cliente/browser ou prefixar segredos com `NEXT_PUBLIC_`.
+- **Nunca** criar rota pública, desativar RLS, usar a chave `service_role`/*secret* do Supabase no cliente/browser ou prefixar segredos com `NEXT_PUBLIC_`. As **únicas** variáveis `NEXT_PUBLIC_` permitidas são `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (públicas por natureza; ver `src/lib/supabase/env.ts`).
 - **Nunca** apontar `pnpm dev`, testes, seeds ou migrações experimentais para o banco de **produção**.
 - **Nunca** rodar comandos destrutivos (`drop`, `truncate`, `rm -rf`, reset de banco) sem confirmação explícita do usuário e backup prévio.
 - **Nunca** editar migrações já aplicadas, nem apagar registros clínicos de forma física.
