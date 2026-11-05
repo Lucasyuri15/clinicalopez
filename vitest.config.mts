@@ -1,6 +1,10 @@
 import react from "@vitejs/plugin-react";
+import { config } from "dotenv";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+
+// Testes de integração usam o Supabase DEV via .env.local (pulados se não existir).
+config({ path: ".env.local", quiet: true });
 
 export default defineConfig({
   plugins: [react()],
