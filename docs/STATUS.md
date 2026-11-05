@@ -1,11 +1,11 @@
 # STATUS — estado atual e próximo passo
 
 > Leia este arquivo ao começar uma sessão nova (ex.: em outro computador). Atualize-o ao fim de cada etapa.
-> **Última atualização:** 2026-11-05 · Regras de trabalho: `AGENTS.md` · Requisitos: `docs/PRD.md`
+> **Última atualização:** 2026-11-06 · Regras de trabalho: `AGENTS.md` · Requisitos: `docs/PRD.md`
 
 ## Onde estamos
 - **Fase 0 (fundação) concluída e mergeada na `dev`** (PR #1): Next.js 16 + pnpm, Tailwind/shadcn, identidade visual, layout responsivo com telas provisórias, utilitários de moeda e data, cabeçalhos de segurança/`noindex`, testes Vitest + Playwright.
-- **Fase 1A-1 (banco, Drizzle e RLS) concluída na branch `feat/fase-1a-acesso-dados`** (ainda sem PR). Spec: `docs/specs/2026-11-05-fase-1a1-banco-rls.md`; plano: `docs/plans/2026-11-05-fase-1a1-banco-rls.md`. Entregou: conexão com o Supabase dev (`app_backend` pelo pooler), Drizzle + migrações versionadas, tabela `profiles` com RLS (admin vê/gerencia todos; os demais só o próprio perfil; ninguém apaga), `withUser` (único acesso a dados, assume `authenticated` + usuário), trava de `db:migrate` por projeto (estrita), regra ESLint contra o cliente cru, testes de RLS e de catálogo contra o dev. Revisada por subagente; achados importantes corrigidos (ver spec).
+- **Fase 1A-1 (banco, Drizzle e RLS) concluída e mergeada na `dev`** (PR #3). Spec: `docs/specs/2026-11-05-fase-1a1-banco-rls.md`; plano: `docs/plans/2026-11-05-fase-1a1-banco-rls.md`. Entregou: conexão com o Supabase dev (`app_backend` pelo pooler), Drizzle + migrações versionadas, tabela `profiles` com RLS (admin vê/gerencia todos; os demais só o próprio perfil; ninguém apaga), `withUser` (único acesso a dados, assume `authenticated` + usuário), trava de `db:migrate` por projeto (estrita), regra ESLint contra o cliente cru, testes de RLS e de catálogo contra o dev. Revisada por subagente; achados importantes corrigidos (ver spec).
 - **Ainda não existem:** login, 2FA, sessão, RBAC no servidor, usuários reais no Auth, CSP, limite de tentativas. As telas continuam sem autenticação.
 - **A `main` só tem a documentação inicial, de propósito.** Não fazer merge da `dev` na `main` antes do login (1A-2): as telas não têm autenticação e o domínio de produção é público.
 
@@ -18,8 +18,8 @@
 | Supabase **produção** | **Ainda não criado.** Decisão pendente: pagar o Pro (backups automáticos) ou ficar no Free com backup nosso + aviso de risco. Pode esperar até antes de entrarem dados reais de pacientes. |
 
 ## Próximo passo (NÃO esquecer)
-1. **Integrar a 1A-1:** abrir PR de `feat/fase-1a-acesso-dados` para a `dev` (o usuário faz o merge). Depois: `git switch dev && git pull`.
-2. **Planejar a 1A-2 (Login, 2FA e perfis) em plan mode** (regra do `AGENTS.md` para mudanças grandes), numa branch nova (ex.: `feat/fase-1a2-login`), começando pelo brainstorming (uma pergunta por vez). Escopo proposto:
+1. *(feito)* 1A-1 integrada na `dev` (PR #3).
+2. **Planejar a 1A-2 (Login, 2FA e perfis) em plan mode** (regra do `AGENTS.md` para mudanças grandes), na branch `feat/fase-1a2-login` (criada a partir da `dev`), começando pelo brainstorming (uma pergunta por vez). Escopo proposto:
    - Supabase Auth com `@supabase/ssr` (cliente servidor/navegador; só a URL e a *publishable key* são públicas), sessão por cookie e `proxy.ts` para checagem otimista (a autorização real fica no servidor, via `withUser`).
    - **2FA TOTP** obrigatório para admin e profissionais (recepção recomendado); política de recuperação de acesso.
    - RBAC no servidor usando `app.current_app_role()` + proteção de todas as telas e ações; sem cadastro público.
