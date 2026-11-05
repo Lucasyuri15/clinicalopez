@@ -20,7 +20,7 @@ Alternativas descartadas:
 
 - Sem contexto de usuário, `app_backend` não tem política em nenhuma tabela: **tudo é negado**.
 - `withUser({ userId }, fn)` (único ponto de acesso do código de negócio): abre transação, `set local role authenticated`, `set_config('request.jwt.claims', {"sub": userId}, true)` e executa `fn(tx)`.
-- O perfil do usuário (`admin | reception | professional`) vem do banco: função `security definer` `app.current_role()` lê `profiles.role` de `auth.uid()`. Não depende de claim no JWT.
+- O perfil do usuário (`admin | reception | professional`) vem do banco: função `security definer` `app.current_app_role()` lê `profiles.role` de `auth.uid()`. Não depende de claim no JWT.
 - A senha de `app_backend` **nunca** entra em migração: o usuário a define no SQL Editor e guarda só no `.env.local` / variáveis da Vercel.
 - `db:migrate` recusa rodar se `DIRECT_URL` não apontar para o projeto dev permitido (protege a produção).
 
