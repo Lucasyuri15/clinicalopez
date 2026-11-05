@@ -29,6 +29,20 @@
       "when": 1793890041149,
       "tag": "0003_require_aal2",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793903055910,
+      "tag": "0004_auth_attempts",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793903148686,
+      "tag": "0005_login_rate_limit",
+      "breakpoints": true
     }
   ]
 }

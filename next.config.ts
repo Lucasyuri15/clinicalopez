@@ -1,8 +1,9 @@
 import type { NextConfig } from "next";
 
 /**
- * Cabeçalhos de segurança aplicados a todas as rotas.
- * A CSP completa (com nonces) entra na fase de autenticação.
+ * Cabeçalhos de segurança estáticos aplicados a todas as rotas.
+ * A Content-Security-Policy NÃO está aqui: ela leva um nonce por requisição e é montada
+ * no `src/proxy.ts` (ver `src/lib/security/csp.ts`).
  */
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -21,16 +22,11 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  cacheComponents: true,
-  partialPrefetching: true,
-  // As telas autenticadas leem sessão (cookies) e banco, então a navegação até elas passa
-  // pelo servidor. Validar "navegação instantânea" em TODA página só gera ruído no dev;
-  // validamos só o que exporta `instant`. O `next build` continua barrando leitura de
-  // cookies fora de <Suspense>. Revisar se um dia cachearmos a sessão (`use cache: private`).
-  experimental: {
-    instantInsights: { validationLevel: "manual-warning" },
-  },
+  // NÃO ligar `cacheComponents` nem `partialPrefetching`: eles geram um shell estático no
+  // build, sem nonce, e a CSP (src/lib/security/csp.ts) bloquearia os scripts do framework
+  // (React não hidrata). Medido no spike da 1A-3; guardado por
+  // src/lib/security/dynamic-rendering.test.ts. Dados de paciente/agenda são por usuário
+  // (RLS) e não devem ser cacheados de forma compartilhada de qualquer modo.
   poweredByHeader: false,
   async redirects() {
     return [{ source: "/", destination: "/dashboard", permanent: false }];

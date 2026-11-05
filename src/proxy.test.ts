@@ -121,6 +121,51 @@ describe("proxy", () => {
   });
 });
 
+describe("proxy: Content-Security-Policy com nonce", () => {
+  const nonceOf = (csp: string | null) => /'nonce-([^']+)'/.exec(csp ?? "")?.[1];
+
+  it("resposta normal: CSP com nonce, e o MESMO nonce vai para a requisição (de onde o Next o lê)", async () => {
+    const response = await call("/login");
+    const csp = response.headers.get("content-security-policy");
+    const nonce = nonceOf(csp);
+    expect(nonce).toBeTruthy();
+    expect(csp).toContain("script-src 'self' 'nonce-");
+    expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+    // `NextResponse.next({ request })` repassa os cabeçalhos da requisição assim. O Next lê
+    // o nonce DESTE cabeçalho; não existe `x-nonce` (nada no app o consumiria).
+    expect(response.headers.get("x-middleware-request-content-security-policy")).toBe(csp);
+    expect(response.headers.get("x-middleware-request-x-nonce")).toBeNull();
+  });
+
+  it("redirecionamento também leva a CSP", async () => {
+    const response = await call("/dashboard"); // sem sessão → /login
+    expect(response.status).toBe(307);
+    expect(response.headers.get("content-security-policy")).toContain("'nonce-");
+    expect(response.headers.get("x-nonce")).toBeNull();
+  });
+
+  it("nonce novo a cada requisição", async () => {
+    const nonces = new Set<string | undefined>();
+    for (let i = 0; i < 20; i++) {
+      nonces.add(nonceOf((await call("/login")).headers.get("content-security-policy")));
+    }
+    expect(nonces.size).toBe(20);
+  });
+
+  it("uma CSP enviada pelo cliente NÃO é aproveitada (o proxy sempre gera a sua)", async () => {
+    const request = new NextRequest("http://localhost:3000/login", {
+      headers: {
+        "content-security-policy": "script-src 'nonce-ZXZpbA==' 'unsafe-inline'",
+      },
+    });
+    const response = await proxy(request);
+    const csp = response.headers.get("content-security-policy") ?? "";
+    expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+    expect(csp).not.toContain("ZXZpbA==");
+    expect(response.headers.get("x-middleware-request-content-security-policy")).toBe(csp);
+  });
+});
+
 describe("config.matcher (avaliado como regex de verdade)", () => {
   const [pattern = ""] = config.matcher;
   // O corpo do matcher é uma regex comum; o Next a ancora no caminho inteiro.

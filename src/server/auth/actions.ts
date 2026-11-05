@@ -12,6 +12,7 @@ import {
   STEP_PATHS,
   type SupabaseServerClient,
 } from "./mfa-step";
+import { beginRateLimited, type AttemptGate } from "./rate-limit";
 
 /**
  * Server Actions de autenticação. Regras:
@@ -47,6 +48,25 @@ function isRateLimited(error: { status?: number } | null): boolean {
 }
 
 /**
+ * Mensagem quando o NOSSO limite de tentativas recusa. A espera vale por e-mail+IP (ou
+ * IP), e é igual para e-mail que existe e que não existe: não revela nada sobre contas.
+ * `unavailable` (banco do limite fora) recusa com mensagem genérica: sem o limite, falha fechada.
+ */
+function gateMessage(gate: Exclude<AttemptGate, { status: "allowed" }>): string {
+  if (gate.status === "unavailable") return MESSAGES.generic;
+  const minutes = Math.max(1, Math.ceil(gate.retryAfterSeconds / 60));
+  return `Muitas tentativas. Tente novamente em ${minutes} ${minutes === 1 ? "minuto" : "minutos"}.`;
+}
+
+/** Usuário da sessão (só do JWT VERIFICADO): a chave do limite do 2FA. Sem sessão, /login. */
+async function sessionUserId(supabase: SupabaseServerClient): Promise<string> {
+  const { data, error } = await supabase.auth.getClaims();
+  const userId = error ? null : data?.claims?.sub;
+  if (!userId) redirect("/login");
+  return userId;
+}
+
+/**
  * Exige sessão e que o usuário esteja exatamente no passo esperado; senão,
  * redireciona para onde ele deveria estar (impede, por ex., cadastrar um segundo
  * fator usando só a senha).
@@ -72,15 +92,21 @@ export async function login(
     return { error: parsed.error.issues[0]?.message ?? MESSAGES.generic };
   }
 
+  // Nosso limite (por IP real e e-mail+IP) vem ANTES de testar a senha no Supabase.
+  const gate = await beginRateLimited("login", parsed.data.email);
+  if (gate.status !== "allowed") return { error: gateMessage(gate) };
+
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.auth.signInWithPassword(parsed.data);
   if (error) {
+    // A tentativa fica contada, inclusive no 429 do próprio Supabase (ver rate-limit.ts).
     return {
       error: isRateLimited(error)
         ? MESSAGES.rateLimited
         : MESSAGES.invalidCredentials,
     };
   }
+  await gate.succeed();
 
   const step = await readAuthStep(supabase);
   redirect(step === null ? "/mfa" : STEP_PATHS[step]);
@@ -129,15 +155,20 @@ export async function verifyMfaEnroll(
     return { error: code.error.issues[0]?.message ?? MESSAGES.invalidCode };
   }
 
+  const gate = await beginRateLimited("mfa", await sessionUserId(supabase));
+  if (gate.status !== "allowed") return { error: gateMessage(gate) };
+
   const { error } = await supabase.auth.mfa.challengeAndVerify({
     factorId: factorId.data,
     code: code.data,
   });
   if (error) {
+    // Contada, inclusive no 429 do Supabase (ver rate-limit.ts).
     return {
       error: isRateLimited(error) ? MESSAGES.rateLimited : MESSAGES.invalidCode,
     };
   }
+  await gate.succeed();
   redirect("/dashboard");
 }
 
@@ -157,15 +188,20 @@ export async function verifyMfaLogin(
   const factor = factors?.totp?.[0];
   if (!factor) redirect("/mfa/enroll");
 
+  const gate = await beginRateLimited("mfa", await sessionUserId(supabase));
+  if (gate.status !== "allowed") return { error: gateMessage(gate) };
+
   const { error } = await supabase.auth.mfa.challengeAndVerify({
     factorId: factor.id,
     code: code.data,
   });
   if (error) {
+    // Contada, inclusive no 429 do Supabase (ver rate-limit.ts).
     return {
       error: isRateLimited(error) ? MESSAGES.rateLimited : MESSAGES.invalidCode,
     };
   }
+  await gate.succeed();
   redirect("/dashboard");
 }
 

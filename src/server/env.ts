@@ -28,6 +28,19 @@ const appDatabaseUrl = z
 const serverEnvSchema = z.object({
   /** Pooler (porta 6543), papel `app_backend.<ref>`. */
   DATABASE_URL: appDatabaseUrl,
+  /**
+   * Cabeçalho que a PLATAFORMA define com o IP do cliente (limite de tentativas de login).
+   * Opcional: sem ele vale `x-real-ip` (Vercel). Em outro host, aponte para o cabeçalho que
+   * o proxy dele sobrescreve (nunca um que o cliente consiga forjar). Linha em branco = ausente.
+   */
+  CLIENT_IP_HEADER: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9-]{1,64}$/)
+      .optional(),
+  ),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
@@ -55,6 +68,9 @@ export function parseServerEnv(
 let cached: ServerEnv | undefined;
 
 export function getServerEnv(): ServerEnv {
-  cached ??= parseServerEnv({ DATABASE_URL: process.env.DATABASE_URL });
+  cached ??= parseServerEnv({
+    DATABASE_URL: process.env.DATABASE_URL,
+    CLIENT_IP_HEADER: process.env.CLIENT_IP_HEADER,
+  });
   return cached;
 }
