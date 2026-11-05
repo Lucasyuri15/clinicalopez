@@ -19,6 +19,43 @@ describe("extractProjectRef", () => {
     expect(extractProjectRef("postgresql://u:p@localhost:5432/db")).toBeNull();
     expect(extractProjectRef("isto-nao-e-url")).toBeNull();
   });
+
+  it("recusa host que não é do Supabase, mesmo com usuário postgres.<ref>", () => {
+    expect(
+      extractProjectRef("postgresql://postgres.devref123:p@qualquer-host.example:5432/db"),
+    ).toBeNull();
+  });
+
+  it("recusa usuário e host de projetos diferentes (conexão direta)", () => {
+    // usuário diz "devref123", mas o host aponta para outro projeto
+    expect(
+      extractProjectRef("postgresql://postgres.devref123:p@db.prodref999.supabase.co:5432/postgres"),
+    ).toBeNull();
+  });
+
+  it("na conexão direta exige o usuário exatamente `postgres`", () => {
+    expect(
+      extractProjectRef("postgresql://outro:p@db.devref123.supabase.co:5432/postgres"),
+    ).toBeNull();
+  });
+
+  it("recusa query string (ex.: ?host= sobrescreve o destino)", () => {
+    expect(extractProjectRef(`${SESSION_POOLER}?host=db.prodref999.supabase.co`)).toBeNull();
+    expect(extractProjectRef(`${DIRECT}?sslmode=require`)).toBeNull();
+  });
+
+  it("não lança com percent-encoding malformado", () => {
+    expect(() =>
+      extractProjectRef(
+        "postgresql://postgres.%zz:p@aws-1-sa-east-1.pooler.supabase.com:5432/postgres",
+      ),
+    ).not.toThrow();
+    expect(
+      extractProjectRef(
+        "postgresql://postgres.%zz:p@aws-1-sa-east-1.pooler.supabase.com:5432/postgres",
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("assertMigrationTarget", () => {
