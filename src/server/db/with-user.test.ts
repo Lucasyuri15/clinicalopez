@@ -56,6 +56,14 @@ describe.skipIf(!hasDb)("withUser (integração, Supabase dev)", () => {
     expect(result).toEqual({ u: "authenticated", uid: USER_ID });
   });
 
+  it("informa aal2 nos claims (a DAL só chama withUser depois de verificar o aal2)", async () => {
+    const aal = await withUser({ userId: USER_ID }, async (tx) => {
+      const rows = await tx.execute<{ aal: string | null }>(sql`select auth.jwt() ->> 'aal' as aal`);
+      return rows[0]?.aal;
+    });
+    expect(aal).toBe("aal2");
+  });
+
   it("não vaza papel nem claims para a consulta seguinte na MESMA conexão", async () => {
     const db = drizzle(single, { schema });
     const inside = await db.transaction(async (tx) => {

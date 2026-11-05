@@ -65,7 +65,7 @@ describe.skipIf(!hasDb)("RLS de profiles (integração, Supabase dev)", () => {
     fn: (ctx: {
       tx: Tx;
       ids: Ids;
-      as: (userId: string) => Promise<void>;
+      as: (userId: string, aal?: "aal1" | "aal2") => Promise<void>;
       asOwner: () => Promise<void>;
     }) => Promise<void>,
   ) {
@@ -123,9 +123,9 @@ describe.skipIf(!hasDb)("RLS de profiles (integração, Supabase dev)", () => {
         const asOwner = async () => {
           await tx.execute(sql`reset role`);
         };
-        const as = async (userId: string) => {
+        const as = async (userId: string, aal?: "aal1" | "aal2") => {
           await asOwner();
-          await applyUserContext(tx, userId);
+          await applyUserContext(tx, userId, aal);
         };
         await fn({ tx, ids, as, asOwner });
         throw new Rollback();
@@ -227,6 +227,56 @@ describe.skipIf(!hasDb)("RLS de profiles (integração, Supabase dev)", () => {
           code = pgCode(error);
         }
         expect(code).toBe("42501");
+      });
+    });
+  });
+
+  describe("2FA (aal2) é obrigatório também para quem fala direto com a Data API", () => {
+    // Um JWT só de senha (aal1) vale na Data API do Supabase. A RLS precisa barrar.
+    it("admin com JWT aal1 não lê nenhum perfil", async () => {
+      await inTx(async ({ tx, ids, as }) => {
+        await as(ids.admin, "aal1");
+        expect(await visibleIds(tx, ids)).toEqual([]);
+      });
+    });
+
+    it("usuário comum com JWT aal1 não lê nem o próprio perfil", async () => {
+      await inTx(async ({ tx, ids, as }) => {
+        await as(ids.reception, "aal1");
+        expect(await visibleIds(tx, ids)).toEqual([]);
+      });
+    });
+
+    it("admin com JWT aal1 não cria nem altera perfis", async () => {
+      await inTx(async ({ tx, ids, as, asOwner }) => {
+        await as(ids.admin, "aal1");
+        const updated = await tx
+          .update(profiles)
+          .set({ role: "reception" })
+          .where(eq(profiles.id, ids.professional))
+          .returning({ id: profiles.id });
+        expect(updated).toEqual([]);
+
+        // Confere (como dono) que nada mudou ANTES do INSERT: um erro aborta a transação.
+        await asOwner();
+        const [row] = await tx.select({ role: profiles.role }).from(profiles).where(eq(profiles.id, ids.professional));
+        expect(row?.role).toBe("professional");
+
+        await as(ids.admin, "aal1");
+        let code: string | undefined;
+        try {
+          await tx.insert(profiles).values({ id: ids.newcomer, fullName: "Novo", role: "reception" });
+        } catch (error) {
+          code = pgCode(error);
+        }
+        expect(code).toBe("42501");
+      });
+    });
+
+    it("o mesmo admin com aal2 continua funcionando", async () => {
+      await inTx(async ({ tx, ids, as }) => {
+        await as(ids.admin, "aal2");
+        expect((await visibleIds(tx, ids)).length).toBeGreaterThan(1);
       });
     });
   });
