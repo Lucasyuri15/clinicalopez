@@ -1,4 +1,10 @@
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
+
+import { testAs } from "./support/auth";
+import { HAS_SUPABASE } from "./support/env";
+
+const test = testAs("admin");
+test.skip(!HAS_SUPABASE, "Sem .env.local do Supabase dev: e2e de autenticação pulados.");
 
 const PAGES = [
   { label: "Dashboard", href: "/dashboard" },
@@ -23,19 +29,21 @@ test.describe("desktop", () => {
     await page.goto("/dashboard");
     const nav = page.getByRole("navigation", { name: "Principal" });
     await expect(nav).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Abrir menu" }),
-    ).toBeHidden();
+    await expect(page.getByRole("button", { name: "Abrir menu" })).toBeHidden();
 
     for (const { label, href } of PAGES) {
       await nav.getByRole("link", { name: label }).click();
       await expect(page).toHaveURL(new RegExp(`${href}$`));
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(label);
-      await expect(nav.getByRole("link", { name: label })).toHaveAttribute(
-        "aria-current",
-        "page",
-      );
+      await expect(nav.getByRole("link", { name: label })).toHaveAttribute("aria-current", "page");
     }
+  });
+
+  test("mostra quem está logado e o botão Sair na barra lateral", async ({ page }) => {
+    await page.goto("/dashboard");
+    const aside = page.locator("aside");
+    await expect(aside.getByText("Administrador")).toBeVisible();
+    await expect(aside.getByRole("button", { name: "Sair" })).toBeVisible();
   });
 });
 
@@ -44,13 +52,12 @@ test.describe("celular", () => {
 
   test("o menu em gaveta abre, navega e fecha", async ({ page }) => {
     await page.goto("/dashboard");
-    await expect(
-      page.getByRole("navigation", { name: "Principal" }),
-    ).toBeHidden();
+    await expect(page.getByRole("navigation", { name: "Principal" })).toBeHidden();
 
     await page.getByRole("button", { name: "Abrir menu" }).click();
     const drawer = page.getByRole("dialog");
     await expect(drawer).toBeVisible();
+    await expect(drawer.getByRole("button", { name: "Sair" })).toBeVisible();
 
     await drawer.getByRole("link", { name: "Agenda" }).click();
     await expect(page).toHaveURL(/\/agenda$/);
@@ -59,9 +66,7 @@ test.describe("celular", () => {
   });
 });
 
-test("o link 'Pular para o conteúdo' leva ao conteúdo principal", async ({
-  page,
-}) => {
+test("o link 'Pular para o conteúdo' leva ao conteúdo principal", async ({ page }) => {
   await page.goto("/dashboard");
   const skip = page.getByRole("link", { name: "Pular para o conteúdo" });
   await skip.focus();

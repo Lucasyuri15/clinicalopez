@@ -8,7 +8,8 @@ Sistema interno de agendamentos e gestão para a clínica familiar López + Saú
 ## Stack
 **Instalado (Fase 0):** Next.js 16 (TypeScript strict, App Router, Cache Components) · Tailwind 4 · shadcn/ui (Base UI) · Vitest · Playwright · pnpm.
 **Instalado (Fase 1A-1):** **Drizzle ORM** + driver `postgres` · **Zod** · `server-only` · banco no **Supabase** (projeto dev) com RLS aplicada.
-**Planejado:** login Supabase Auth com MFA (1A-2) · CSP e limite de tentativas (1A-3) · deploy na **Vercel** · Storage (Fase 4).
+**Instalado (Fase 1A-2):** **Supabase Auth** (`@supabase/ssr`, `@supabase/supabase-js`) com login por senha + **2FA TOTP obrigatório para todos**, `src/proxy.ts`, RBAC · `tsx` (scripts locais) e `otpauth` (só testes).
+**Planejado:** CSP e limite de tentativas (1A-3) · deploy na **Vercel** · Storage (Fase 4).
 
 > O Next.js desta versão tem mudanças de API: antes de escrever código de framework, consulte `node_modules/next/dist/docs/` (veja o bloco ao final deste arquivo). Se um comando abaixo ainda não existir, crie-o em vez de inventar alternativa e mantenha esta seção atualizada.
 
@@ -21,20 +22,22 @@ pnpm build && pnpm start     # build e execução de produção local
 pnpm lint                    # ESLint
 pnpm typecheck               # next typegen && tsc --noEmit
 pnpm test                    # unitários/componentes (Vitest, jsdom)
-pnpm test:e2e                # fluxos completos (Playwright: projetos desktop e mobile; sobe o `pnpm dev`)
+pnpm test:e2e                # fluxos completos (Playwright: desktop e mobile; sobe o `pnpm dev`). Usa o Supabase DEV com usuários fictícios (criados e apagados pelo projeto `setup`/`cleanup`); SEM `.env.local` completo é pulado
 
 pnpm db:generate             # gera migração a partir do schema (use --custom para SQL à mão: RLS, grants, funções)
 pnpm db:migrate              # aplica migrações via DIRECT_URL; RECUSA se o projeto não for o de MIGRATION_PROJECT_REF
+pnpm users:link <e-mail> <admin|reception|professional> "<Nome>"   # vincula o papel a um usuário criado no painel do Supabase (dono do banco)
+pnpm users:reset-mfa <e-mail> [--yes]   # recuperação de 2FA (celular perdido): remove fatores e sessões; sem --yes só simula
 
 # Ainda NÃO existem:
-pnpm db:seed                 # dados FICTÍCIOS, somente no ambiente de DEV (previsto na 1A-2)
+pnpm db:seed                 # dados FICTÍCIOS, somente no ambiente de DEV (previsto na 1B, com os cadastros)
 pnpm backup                  # exporta banco + anexos criptografados (ver PRD, seção 5)
 ```
 **Antes de dizer que terminou:** `pnpm lint && pnpm typecheck && pnpm test` devem passar. Mudanças de fluxo/UI: rode também `pnpm test:e2e` e confira no navegador (desktop e celular).
 
 **Testes de integração do banco** (`src/server/db/*.test.ts`) rodam contra o Supabase **dev** usando o `.env.local`, em transações sempre revertidas e só com dados fictícios. Sem `.env.local` eles são **pulados** (a suíte continua verde). Eles recusam rodar fora do projeto de `MIGRATION_PROJECT_REF`.
 
-**Variáveis (`.env.local`, modelo em `.env.example`):** `DATABASE_URL` (Transaction pooler, porta 6543, usuário `app_backend.<ref>`), `DIRECT_URL` (Session pooler, porta 5432, usuário `postgres.<ref>`; a conexão direta do plano Free é só IPv6) e `MIGRATION_PROJECT_REF`. A senha de `app_backend` é gerada fora do Git, **nunca** vai em migração, chat ou commit. Na Vercel configure **somente** `DATABASE_URL`: `DIRECT_URL` (dono `postgres`) e `MIGRATION_PROJECT_REF` não vão para o app. O app recusa iniciar se `DATABASE_URL` não usar o papel `app_backend`.
+**Variáveis (`.env.local`, modelo em `.env.example`):** `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (públicas), `DATABASE_URL` (Transaction pooler, porta 6543, usuário `app_backend.<ref>`), `DIRECT_URL` (Session pooler, porta 5432, usuário `postgres.<ref>`; a conexão direta do plano Free é só IPv6) e `MIGRATION_PROJECT_REF`. A senha de `app_backend` é gerada fora do Git, **nunca** vai em migração, chat ou commit. Na Vercel configure **somente** as duas variáveis públicas e `DATABASE_URL`: `DIRECT_URL` (dono `postgres`) e `MIGRATION_PROJECT_REF` não vão para o app. O app recusa iniciar se `DATABASE_URL` não usar o papel `app_backend`.
 
 ## Estrutura (alvo)
 ```
@@ -47,11 +50,16 @@ docs/               PRD, specs/ e plans/; docs/brand/ identidade visual
 
 src/server/         código só de servidor (`import "server-only"`): env.ts (variáveis validadas com Zod)
 src/server/db/      schema.ts, migrations/ (SQL versionado), client.ts (cliente cru, PRIVADO),
-                    with-user.ts (`withUser`: único acesso a dados), migration-guard.ts, testes de RLS
+                    with-user.ts (`withUser`: único acesso a dados), migration-guard.ts, admin-users.ts, testes de RLS
+src/server/auth/    session.ts (DAL: requireUser/requireRole/requirePageAccess), actions.ts (Server Actions
+                    de login/2FA/logout), mfa-step.ts, step-gate.tsx
+src/lib/auth/       access.ts (matriz de acesso por tela), route-guard.ts, steps.ts, schemas.ts, qr.ts (puros, testados)
+src/lib/supabase/   env.ts (variáveis públicas), server.ts (cliente por requisição), proxy.ts (renovação de sessão)
+src/proxy.ts        checagem OTIMISTA de sessão em todas as rotas (só JWT, sem banco)
+scripts/            comandos locais do dono do banco (users:link, users:reset-mfa)
 drizzle.config.ts   config do drizzle-kit (usa DIRECT_URL e a trava de projeto)
 
 # Previsto:
-src/server/auth/    login, sessão, 2FA e RBAC (1A-2)
 src/server/storage/ interface de anexos (driver Supabase Storage / S3 no futuro)
 ```
 
@@ -59,10 +67,11 @@ src/server/storage/ interface de anexos (driver Supabase Storage / S3 no futuro)
 - **Idioma:** UI, mensagens e textos em **pt-BR**; código, identificadores e commits em **inglês**.
 - **TypeScript strict**; sem `any` (use `unknown` + validação). Validação de entrada com **Zod** em toda fronteira (forms, actions, API).
 - **Autorização no servidor** (camada única de acesso a dados em `src/server`) **e** reforçada por **RLS** no Supabase, com as políticas versionadas em migrações SQL. Perfis: `admin`, `reception`, `professional`. Recepção nunca lê prontuário; profissional só os próprios pacientes; admin acessa tudo. Todo acesso a prontuário gera log de auditoria.
-- **Auth:** Supabase Auth com MFA obrigatório para admin e profissionais; sem cadastro público (usuários criados pelo admin).
+- **Auth:** Supabase Auth, login por senha + **2FA TOTP obrigatório para TODOS os perfis**; sem cadastro público (desligado no painel). Usuários são criados no **painel do Supabase** e o papel vinculado com `pnpm users:link` (nenhuma chave *secret* no app). Só o `src/proxy.ts` renova o token; Server Components/Actions apenas leem a sessão (`getClaims`, nunca `getSession` no servidor). Sem "esqueci minha senha" por e-mail por ora (reset pelo painel).
+- **Proteção de telas e ações:** o `proxy` é só uma checagem otimista. **Toda** página do grupo `(app)`, Server Action e Route Handler não público chama `requirePageAccess(rota)`/`requireUser()`/`requireRole(...)` (`@/server/auth/session`); o layout NÃO basta (não re-renderiza a cada navegação). Tela nova: registre-a em `src/lib/auth/access.ts` (rota desconhecida é negada) e teste por papel. Ler sessão (cookies) só dentro de `<Suspense>` (Cache Components).
 - **Datas:** salvar em UTC; exibir em `America/Sao_Paulo`. **Dinheiro:** inteiro em centavos, formatar em BRL só na exibição.
 - **Banco:** toda alteração via migração versionada; nunca editar migração já aplicada. Exclusão de dados clínicos é lógica (soft delete) com auditoria.
-- **Acesso a dados (RLS de verdade):** o app conecta como `app_backend` (sem BYPASSRLS, sem privilégios próprios) e **todo** acesso passa por `withUser({ userId }, async (tx) => …)` de `@/server/db/with-user`, que assume o papel `authenticated` com o usuário logado. **Nunca** importe `@/server/db/client` fora de `src/server/db/` (regra ESLint). Toda tabela nova: `.enableRLS()` no schema, `REVOKE` de `anon`/`PUBLIC`, `GRANT` mínimo a `authenticated` e políticas em migração SQL, **com teste de RLS por perfil** (modelo: `rls.test.ts`). O papel do usuário vem de `app.current_app_role()` (lê `profiles`), não do JWT.
+- **Acesso a dados (RLS de verdade):** o app conecta como `app_backend` (sem BYPASSRLS, sem privilégios próprios) e **todo** acesso passa por `withUser({ userId }, async (tx) => …)` de `@/server/db/with-user`, que assume o papel `authenticated` com o usuário logado. **Nunca** importe `@/server/db/client` fora de `src/server/db/` (regra ESLint). Toda tabela nova: `.enableRLS()` no schema, `REVOKE` de `anon`/`PUBLIC`, `GRANT` mínimo a `authenticated`, políticas em migração SQL **e uma política `RESTRICTIVE` exigindo `aal2`** (modelo: migração `0003_require_aal2.sql`; a URL e a chave publishable são públicas e a Data API aceita um JWT só de senha, então a RLS também exige o 2FA; o teste de catálogo falha se faltar), **com teste de RLS por perfil** (modelo: `rls.test.ts`). O papel do usuário vem de `app.current_app_role()` (lê `profiles`), não do JWT.
 - **Agenda:** conflito de horário (profissional e paciente) é checado no servidor e protegido por constraint/transação no banco, não só na UI.
 - **Portabilidade (PRD 6.1):** configuração só por variáveis de ambiente (`.env`, mantenha `.env.example` atualizado); anexos pela interface de storage; jobs como rotas HTTP protegidas por segredo (Vercel Cron); evite recursos exclusivos da Vercel quando houver alternativa padrão.
 - **Ambientes:** produção (dados reais) e dev/preview (projeto Supabase separado). Dados reais só em produção.
@@ -99,7 +108,7 @@ Adaptado do workflow do projeto [Superpowers](https://github.com/obra/superpower
 - **Nunca** usar dados reais de pacientes em código, testes, seeds, fixtures, prints ou logs. Só dados fictícios.
 - **Nunca** commitar segredos (`.env`, tokens do WhatsApp/Meta, chaves de backup) nem logar dados de saúde ou PII (CPF, telefone, prontuário).
 - **Nunca** contornar ou duplicar a checagem de permissões, nem criar rota/endpoint sem autorização.
-- **Nunca** criar rota pública, desativar RLS, usar a chave `service_role` do Supabase no cliente/browser ou prefixar segredos com `NEXT_PUBLIC_`.
+- **Nunca** criar rota pública, desativar RLS, usar a chave `service_role`/*secret* do Supabase no cliente/browser ou prefixar segredos com `NEXT_PUBLIC_`. As **únicas** variáveis `NEXT_PUBLIC_` permitidas são `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (públicas por natureza; ver `src/lib/supabase/env.ts`).
 - **Nunca** apontar `pnpm dev`, testes, seeds ou migrações experimentais para o banco de **produção**.
 - **Nunca** rodar comandos destrutivos (`drop`, `truncate`, `rm -rf`, reset de banco) sem confirmação explícita do usuário e backup prévio.
 - **Nunca** editar migrações já aplicadas, nem apagar registros clínicos de forma física.

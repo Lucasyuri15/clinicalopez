@@ -31,8 +31,20 @@ pnpm db:generate   # gera migração a partir de src/server/db/schema.ts (--cust
 pnpm db:migrate    # aplica migrações; recusa se o projeto não for o de MIGRATION_PROJECT_REF
 ```
 
+## Login e usuários
+
+Todas as telas exigem login (e-mail + senha) e 2FA com app autenticador. Não há cadastro público.
+
+```bash
+# 1) crie o usuário no painel do Supabase: Authentication → Users → Add user (Auto Confirm)
+# 2) vincule o papel (admin, reception ou professional):
+pnpm users:link maria@clinica.com reception "Maria Souza"
+# celular perdido? remove o 2FA do usuário (sem --yes só simula):
+pnpm users:reset-mfa maria@clinica.com --yes
+```
+
 O app acessa o banco só pelo servidor, sob RLS, via `withUser` (ver `AGENTS.md`).
-Sem `.env.local`, os testes de integração do banco são pulados.
+Sem `.env.local`, os testes de integração do banco e os e2e são pulados.
 
 ## Verificação
 
@@ -48,7 +60,6 @@ pnpm build
 
 Fase 0 (fundação): layout responsivo com identidade visual e telas provisórias.
 Fase 1A-1: banco no Supabase (dev) com Drizzle, migrações e RLS aplicada.
-Ainda **sem login**; ele entra na 1A-2. Veja `docs/STATUS.md` para o estado detalhado.
+Fase 1A-2: login com 2FA, sessão, perfis (RBAC) e proteção das telas. Veja `docs/STATUS.md`.
 
-> **Não publique esta versão em produção.** As telas não exigem autenticação; o deploy
-> de produção só deve acontecer depois do login (1A-2).
+> Antes de publicar em produção faltam CSP e limite de tentativas de login (1A-3).

@@ -104,6 +104,26 @@ describe.skipIf(!hasDb)("catálogo do banco (integração, Supabase dev)", () =>
     expect(offenders.map((row) => row.relname)).toEqual([]);
   });
 
+  it("toda tabela de public acessível a authenticated tem política RESTRICTIVE exigindo aal2", async () => {
+    // JWT só de senha (aal1) vale na Data API: a RLS precisa exigir o 2FA em cada tabela.
+    const offenders = await owner`
+      select c.relname
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relkind in ('r', 'p')
+        and has_table_privilege('authenticated', c.oid, 'SELECT,INSERT,UPDATE,DELETE')
+        and not exists (
+          select 1 from pg_policies p
+          where p.schemaname = 'public' and p.tablename = c.relname
+            and p.permissive = 'RESTRICTIVE'
+            and p.cmd = 'ALL'
+            and 'authenticated' = any (p.roles)
+            and p.qual like '%aal2%'
+            and p.with_check like '%aal2%'
+        )`;
+    expect(offenders.map((row) => row.relname)).toEqual([]);
+  });
+
   it("tabelas futuras criadas pelo dono (postgres) NÃO nascem com grants para anon/authenticated", async () => {
     const rows = await owner`
       select d.defaclobjtype as tipo, d.defaclacl::text as acl

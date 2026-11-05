@@ -19,6 +19,8 @@ export const userRole = pgEnum("user_role", [
   "professional",
 ]);
 
+export type UserRole = (typeof userRole.enumValues)[number];
+
 /** Perfil de cada usuário do Supabase Auth: define o papel (RBAC). */
 export const profiles = pgTable("profiles", {
   // Mesmo ID do usuário em auth.users. `restrict`: não permite apagar o usuário

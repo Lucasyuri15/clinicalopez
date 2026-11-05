@@ -9,15 +9,18 @@ import { isActiveRoute, NAV_ITEMS } from "@/lib/navigation";
 type SidebarNavProps = {
   /** Chamado ao navegar (ex.: fechar a gaveta no celular). */
   onNavigate?: () => void;
+  /** Telas permitidas ao papel do usuário (o menu só mostra estas). */
+  allowedHrefs: readonly string[];
 };
 
-export function SidebarNav({ onNavigate }: SidebarNavProps) {
+export function SidebarNav({ onNavigate, allowedHrefs }: SidebarNavProps) {
   const pathname = usePathname();
+  const items = NAV_ITEMS.filter((item) => allowedHrefs.includes(item.href));
 
   return (
     <nav aria-label="Principal">
       <ul className="flex flex-col gap-1">
-        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+        {items.map(({ href, label, icon: Icon }) => {
           const active = isActiveRoute(pathname, href);
           return (
             <li key={href}>
