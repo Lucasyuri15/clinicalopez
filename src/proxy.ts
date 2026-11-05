@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { decideRoute } from "@/lib/auth/route-guard";
+import { buildCsp, generateNonce } from "@/lib/security/csp";
 import { updateSession } from "@/lib/supabase/proxy";
 
 /**
@@ -10,7 +11,20 @@ import { updateSession } from "@/lib/supabase/proxy";
  * (erro) em vez de liberar o acesso.
  */
 export async function proxy(request: NextRequest) {
+  // CSP com nonce por requisição. O Next lê o nonce do cabeçalho `Content-Security-Policy`
+  // da REQUISIÇÃO ao renderizar, então ele é gravado aqui, antes de `updateSession` (que
+  // monta a resposta com `NextResponse.next({ request })`), e SOBRESCREVE qualquer valor
+  // enviado pelo cliente. A mesma CSP também vai no cabeçalho da resposta (o que vale
+  // para o navegador). Sem cabeçalho `x-nonce`: o Next extrai o nonce da própria CSP e
+  // nenhum código do app precisa lê-lo.
+  const csp = buildCsp({
+    nonce: generateNonce(),
+    isDev: process.env.NODE_ENV === "development",
+  });
+  request.headers.set("content-security-policy", csp);
+
   const { response, aal } = await updateSession(request);
+  response.headers.set("Content-Security-Policy", csp);
   const decision = decideRoute({ pathname: request.nextUrl.pathname, aal });
   if (decision.action === "next") return response;
 
@@ -19,6 +33,7 @@ export async function proxy(request: NextRequest) {
   target.pathname = decision.to;
   target.search = "";
   const redirect = NextResponse.redirect(target);
+  redirect.headers.set("Content-Security-Policy", csp);
 
   // Mantém cookies renovados e cabeçalhos anti-cache da resposta do Supabase.
   response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
