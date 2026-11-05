@@ -4,8 +4,13 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { loginSchema, totpCodeSchema } from "@/lib/auth/schemas";
-import { nextAuthStep, type AuthStep } from "@/lib/auth/steps";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+import {
+  readAuthStep,
+  STEP_PATHS,
+  type SupabaseServerClient,
+} from "./mfa-step";
 
 /**
  * Server Actions de autenticação. Regras:
@@ -29,10 +34,6 @@ const MESSAGES = {
   generic: "Não foi possível concluir. Tente novamente.",
 } as const;
 
-type SupabaseServerClient = Awaited<
-  ReturnType<typeof createSupabaseServerClient>
->;
-
 const factorIdSchema = z.guid();
 
 function text(formData: FormData, name: string): string {
@@ -42,24 +43,6 @@ function text(formData: FormData, name: string): string {
 
 function isRateLimited(error: { status?: number } | null): boolean {
   return error?.status === 429;
-}
-
-const STEP_PATHS: Record<AuthStep, string> = {
-  login: "/login",
-  "mfa-enroll": "/mfa/enroll",
-  "mfa-verify": "/mfa/verify",
-  app: "/dashboard",
-};
-
-/** Passo atual do 2FA; `null` se o nível não puder ser lido (nunca assume liberação). */
-async function readStep(supabase: SupabaseServerClient): Promise<AuthStep | null> {
-  const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-  if (error || !data) return null;
-  return nextAuthStep({
-    hasSession: true,
-    currentLevel: data.currentLevel,
-    nextLevel: data.nextLevel,
-  });
 }
 
 /**
@@ -73,7 +56,7 @@ async function requireStep(
 ): Promise<void> {
   const { data, error } = await supabase.auth.getClaims();
   if (error || !data?.claims) redirect("/login");
-  const step = await readStep(supabase);
+  const step = await readAuthStep(supabase);
   if (step === null) redirect("/mfa");
   if (step !== expected) redirect(STEP_PATHS[step]);
 }
@@ -100,7 +83,7 @@ export async function login(
     };
   }
 
-  const step = await readStep(supabase);
+  const step = await readAuthStep(supabase);
   redirect(step === null ? "/mfa" : STEP_PATHS[step]);
 }
 

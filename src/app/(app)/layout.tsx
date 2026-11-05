@@ -1,7 +1,17 @@
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 
-import { AppShell } from "@/components/layout/app-shell";
+import { AuthenticatedShell } from "@/components/layout/authenticated-shell";
 
 export default function AppLayout({ children }: { children: ReactNode }) {
-  return <AppShell>{children}</AppShell>;
+  return (
+    <Suspense
+      fallback={
+        <p className="p-8 text-muted-foreground" role="status">
+          Carregando…
+        </p>
+      }
+    >
+      <AuthenticatedShell>{children}</AuthenticatedShell>
+    </Suspense>
+  );
 }

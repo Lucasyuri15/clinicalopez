@@ -1,7 +1,7 @@
 "use client";
 
 import { MenuIcon } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { Brand } from "@/components/layout/brand";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
@@ -15,7 +15,13 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 
-export function MobileNav() {
+type MobileNavProps = {
+  allowedHrefs: readonly string[];
+  /** Nome, papel e botão Sair (renderizados no servidor). */
+  account: ReactNode;
+};
+
+export function MobileNav({ allowedHrefs, account }: MobileNavProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -41,8 +47,12 @@ export function MobileNav() {
               Navegação principal
             </SheetDescription>
           </SheetHeader>
-          <div className="px-3 pb-4">
-            <SidebarNav onNavigate={() => setOpen(false)} />
+          <div className="flex flex-1 flex-col gap-4 px-3 pb-4">
+            <SidebarNav
+              allowedHrefs={allowedHrefs}
+              onNavigate={() => setOpen(false)}
+            />
+            <div className="mt-auto">{account}</div>
           </div>
         </SheetContent>
       </Sheet>
