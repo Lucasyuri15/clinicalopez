@@ -11,7 +11,13 @@ import {
   usersFile,
   type UsersFile,
 } from "./support/auth";
-import { createFixtureUser, deleteFixtureUsers, fixtureEmail, newPassword } from "./support/db";
+import {
+  createFixtureUser,
+  deleteFixtureUsers,
+  deleteTestAttempts,
+  fixtureEmail,
+  newPassword,
+} from "./support/db";
 import { HAS_SUPABASE } from "./support/env";
 
 const ROLE_NAMES = {
@@ -28,6 +34,7 @@ setup.skip(!HAS_SUPABASE, "Sem .env.local do Supabase dev: e2e de autenticação
 setup.beforeAll(async () => {
   ensureAuthDir();
   await deleteFixtureUsers(); // restos de uma execução interrompida
+  await deleteTestAttempts(); // falhas de execuções anteriores contariam na janela de 15 min
   fs.writeFileSync(usersFile, JSON.stringify({} satisfies UsersFile));
 });
 

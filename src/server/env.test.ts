@@ -52,6 +52,28 @@ describe("parseServerEnv", () => {
     ).toThrow(/app_backend/);
   });
 
+  describe("CLIENT_IP_HEADER (cabeçalho com o IP do cliente, opcional)", () => {
+    it("é opcional: sem ele nada muda", () => {
+      expect(parseServerEnv(valid).CLIENT_IP_HEADER).toBeUndefined();
+    });
+
+    it("aceita um nome de cabeçalho HTTP", () => {
+      for (const name of ["x-real-ip", "X-Forwarded-For", "cf-connecting-ip"]) {
+        expect(parseServerEnv({ ...valid, CLIENT_IP_HEADER: name }).CLIENT_IP_HEADER).toBe(name);
+      }
+    });
+
+    it("string vazia (linha em branco do .env) vale como ausente", () => {
+      expect(parseServerEnv({ ...valid, CLIENT_IP_HEADER: "" }).CLIENT_IP_HEADER).toBeUndefined();
+    });
+
+    it("recusa valor que não é nome de cabeçalho (nada de lista, espaço ou caractere estranho)", () => {
+      for (const bad of ["x real ip", "x-real-ip, x-forwarded-for", "ip;drop", "á", "x".repeat(65)]) {
+        expect(() => parseServerEnv({ ...valid, CLIENT_IP_HEADER: bad }), bad).toThrow(/CLIENT_IP_HEADER/);
+      }
+    });
+  });
+
   it("nunca inclui o valor (segredo) na mensagem de erro", () => {
     const messages: string[] = [];
     for (const url of [

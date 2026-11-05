@@ -26,6 +26,12 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth }),
 }));
+const limiter = vi.hoisted(() => ({
+  beginRateLimited: vi.fn(),
+  succeed: vi.fn(),
+  cancel: vi.fn(),
+}));
+vi.mock("./rate-limit", () => ({ beginRateLimited: limiter.beginRateLimited }));
 
 import {
   login,
@@ -74,6 +80,14 @@ beforeEach(() => {
   auth.signOut.mockResolvedValue({ error: null });
   auth.mfa.listFactors.mockResolvedValue({ data: { all: [], totp: [] }, error: null });
   auth.mfa.unenroll.mockResolvedValue({ data: {}, error: null });
+  // Por padrão o limite de tentativas libera (os testes do limite trocam isto).
+  limiter.succeed.mockResolvedValue(undefined);
+  limiter.cancel.mockResolvedValue(undefined);
+  limiter.beginRateLimited.mockResolvedValue({
+    status: "allowed",
+    succeed: limiter.succeed,
+    cancel: limiter.cancel,
+  });
 });
 
 describe("login", () => {
@@ -305,6 +319,128 @@ describe("verifyMfaLogin", () => {
     expect(await verifyMfaLogin(undefined, form({ code: "000000" }))).toEqual({
       error: "Muitas tentativas. Aguarde alguns minutos e tente novamente.",
     });
+  });
+});
+
+const blocked = (retryAfterSeconds: number) =>
+  limiter.beginRateLimited.mockResolvedValue({ status: "blocked", retryAfterSeconds });
+
+describe("limite de tentativas: login", () => {
+  it("conta a tentativa com o e-mail normalizado, DEPOIS de validar e ANTES de chamar o Supabase", async () => {
+    await login(undefined, form({ email: "x", password: "y" })); // inválido: nem conta
+    expect(limiter.beginRateLimited).not.toHaveBeenCalled();
+
+    auth.signInWithPassword.mockResolvedValue({ data: null, error: { status: 400, message: "x" } });
+    await login(undefined, form({ email: " Maria@X.COM ", password: "s" }));
+    expect(limiter.beginRateLimited).toHaveBeenCalledWith("login", "maria@x.com");
+    expect(limiter.beginRateLimited.mock.invocationCallOrder[0]).toBeLessThan(
+      auth.signInWithPassword.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it("bloqueado: NÃO chama o Supabase e diz em quantos minutos tentar de novo", async () => {
+    for (const [seconds, text] of [
+      [50, "1 minuto"],
+      [61, "2 minutos"],
+      [900, "15 minutos"],
+    ] as const) {
+      blocked(seconds);
+      const state = await login(undefined, form({ email: "a@b.co", password: "x" }));
+      expect(state).toEqual({ error: `Muitas tentativas. Tente novamente em ${text}.` });
+    }
+    expect(auth.signInWithPassword).not.toHaveBeenCalled();
+  });
+
+  it("limite indisponível: recusa (falha fechada), mensagem genérica, sem chamar o Supabase", async () => {
+    limiter.beginRateLimited.mockResolvedValue({ status: "unavailable" });
+    const state = await login(undefined, form({ email: "a@b.co", password: "x" }));
+    expect(state).toEqual({ error: "Não foi possível concluir. Tente novamente." });
+    expect(auth.signInWithPassword).not.toHaveBeenCalled();
+  });
+
+  it("senha errada: a falha fica contada (nem perdoa nem cancela)", async () => {
+    auth.signInWithPassword.mockResolvedValue({ data: null, error: { status: 400, code: "invalid_credentials", message: "x" } });
+    await login(undefined, form({ email: "a@b.co", password: "x" }));
+    expect(limiter.succeed).not.toHaveBeenCalled();
+    expect(limiter.cancel).not.toHaveBeenCalled();
+  });
+
+  it("login certo: perdoa as falhas do par, antes de redirecionar", async () => {
+    auth.signInWithPassword.mockResolvedValue({ data: {}, error: null });
+    withLevels("aal2", "aal2");
+    expect(await redirectedTo(login(undefined, form({ email: "a@b.co", password: "x" })))).toBe("/dashboard");
+    expect(limiter.succeed).toHaveBeenCalledTimes(1);
+  });
+
+  it("429 do próprio Supabase CONTA como falha (não some do contador de quem esgota o balde) e não perdoa", async () => {
+    auth.signInWithPassword.mockResolvedValue({ data: null, error: { status: 429, message: "rate" } });
+    const state = await login(undefined, form({ email: "a@b.co", password: "x" }));
+    expect(state).toEqual({ error: "Muitas tentativas. Aguarde alguns minutos e tente novamente." });
+    expect(limiter.succeed).not.toHaveBeenCalled();
+    expect(limiter.cancel).not.toHaveBeenCalled(); // `cancel` nem existe mais no limitador real
+  });
+});
+
+describe.each([
+  {
+    name: "verifyMfaLogin",
+    setup: () => {
+      withLevels("aal1", "aal2"); // há fator verificado: passo "mfa-verify"
+    },
+    run: (code: string) => verifyMfaLogin(undefined, form({ code })),
+  },
+  {
+    name: "verifyMfaEnroll",
+    setup: () => {
+      withLevels("aal1", "aal1"); // sem fator: passo "mfa-enroll"
+    },
+    run: (code: string) => verifyMfaEnroll(undefined, form({ factorId: FACTOR_ID, code })),
+  },
+])("limite de tentativas: 2FA ($name)", ({ setup, run }) => {
+  it("conta pelo USUÁRIO da sessão, só com o código bem formado e só no passo certo", async () => {
+    setup();
+    await run("12"); // mal formado: não é tentativa
+    expect(limiter.beginRateLimited).not.toHaveBeenCalled();
+
+    withLevels("aal2", "aal2"); // passo errado: redireciona, não conta
+    await redirectedTo(run("123456"));
+    expect(limiter.beginRateLimited).not.toHaveBeenCalled();
+
+    setup();
+    auth.mfa.challengeAndVerify.mockResolvedValue({ data: null, error: { status: 400, message: "x" } });
+    await run("123456");
+    expect(limiter.beginRateLimited).toHaveBeenCalledWith("mfa", "u1");
+  });
+
+  it("bloqueado: NÃO verifica o código no Supabase", async () => {
+    setup();
+    blocked(300);
+    expect(await run("123456")).toEqual({ error: "Muitas tentativas. Tente novamente em 5 minutos." });
+    expect(auth.mfa.challengeAndVerify).not.toHaveBeenCalled();
+  });
+
+  it("limite indisponível: recusa sem verificar", async () => {
+    setup();
+    limiter.beginRateLimited.mockResolvedValue({ status: "unavailable" });
+    expect(await run("123456")).toEqual({ error: "Não foi possível concluir. Tente novamente." });
+    expect(auth.mfa.challengeAndVerify).not.toHaveBeenCalled();
+  });
+
+  it("código errado e 429 do Supabase ficam contados; só o código certo perdoa", async () => {
+    setup();
+    auth.mfa.challengeAndVerify.mockResolvedValue({ data: null, error: { status: 400, message: "x" } });
+    await run("123456");
+    expect(limiter.succeed).not.toHaveBeenCalled();
+    expect(limiter.cancel).not.toHaveBeenCalled();
+
+    auth.mfa.challengeAndVerify.mockResolvedValue({ data: null, error: { status: 429, message: "rate" } });
+    await run("123456");
+    expect(limiter.succeed).not.toHaveBeenCalled();
+    expect(limiter.cancel).not.toHaveBeenCalled();
+
+    auth.mfa.challengeAndVerify.mockResolvedValue({ data: {}, error: null });
+    await redirectedTo(run("123456"));
+    expect(limiter.succeed).toHaveBeenCalledTimes(1);
   });
 });
 

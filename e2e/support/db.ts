@@ -69,6 +69,35 @@ export async function deleteFixtureUsers(): Promise<number> {
   }
 }
 
+/**
+ * Apaga as tentativas de login dos e2e: as do balde `unknown` (o dev local não tem
+ * `x-real-ip`, então todos os testes caem nele) e as dos IPs de documentação (TEST-NET).
+ * Sem isto, falhas de execuções anteriores contam na janela de 15 min e a suíte vira
+ * flaky: o e-mail fixo `ninguem-existe@teste.invalid` chegaria ao teto e a mensagem mudaria.
+ */
+export async function deleteTestAttempts(): Promise<void> {
+  const sql = connect();
+  try {
+    await sql`delete from public.auth_attempts
+      where ip = 'unknown' or ip ~ '^(192\\.0\\.2|198\\.51\\.100|203\\.0\\.113)\\.'`;
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+/** Apaga as tentativas de login gravadas para IPs de documentação (TEST-NET) usados nos e2e. */
+export async function deleteAttemptsForIps(ips: string[]): Promise<void> {
+  if (!ips.every((ip) => /^(192\.0\.2|198\.51\.100|203\.0\.113)\.\d{1,3}$/.test(ip))) {
+    throw new Error("Recusado: só apago tentativas dos IPs de documentação usados nos e2e.");
+  }
+  const sql = connect();
+  try {
+    await sql`delete from public.auth_attempts where ip in ${sql(ips)}`;
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
 /** Apaga um usuário fictício específico (sem afetar os outros testes em andamento). */
 export async function deleteFixtureUser(email: string): Promise<void> {
   if (!email.startsWith(FIXTURE_PREFIX) || !email.endsWith(`@${FIXTURE_DOMAIN}`)) {
