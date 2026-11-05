@@ -34,7 +34,7 @@ pnpm backup                  # exporta banco + anexos criptografados (ver PRD, s
 
 **Testes de integração do banco** (`src/server/db/*.test.ts`) rodam contra o Supabase **dev** usando o `.env.local`, em transações sempre revertidas e só com dados fictícios. Sem `.env.local` eles são **pulados** (a suíte continua verde). Eles recusam rodar fora do projeto de `MIGRATION_PROJECT_REF`.
 
-**Variáveis (`.env.local`, modelo em `.env.example`):** `DATABASE_URL` (Transaction pooler, porta 6543, usuário `app_backend.<ref>`), `DIRECT_URL` (Session pooler, porta 5432, usuário `postgres.<ref>`; a conexão direta do plano Free é só IPv6) e `MIGRATION_PROJECT_REF`. A senha de `app_backend` é gerada fora do Git, **nunca** vai em migração, chat ou commit.
+**Variáveis (`.env.local`, modelo em `.env.example`):** `DATABASE_URL` (Transaction pooler, porta 6543, usuário `app_backend.<ref>`), `DIRECT_URL` (Session pooler, porta 5432, usuário `postgres.<ref>`; a conexão direta do plano Free é só IPv6) e `MIGRATION_PROJECT_REF`. A senha de `app_backend` é gerada fora do Git, **nunca** vai em migração, chat ou commit. Na Vercel configure **somente** `DATABASE_URL`: `DIRECT_URL` (dono `postgres`) e `MIGRATION_PROJECT_REF` não vão para o app. O app recusa iniciar se `DATABASE_URL` não usar o papel `app_backend`.
 
 ## Estrutura (alvo)
 ```

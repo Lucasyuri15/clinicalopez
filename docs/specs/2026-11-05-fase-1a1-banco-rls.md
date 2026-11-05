@@ -42,3 +42,23 @@ Executado em 2026-11-05 contra o projeto dev (Postgres 17.11, pooler `aws-1-sa-e
 - **(b) Troca de papel — OK:** via Transaction pooler, `set local role authenticated` + `set_config('request.jwt.claims', …, true)` funcionam; dentro da transação `current_user = authenticated` e `auth.uid()` devolve o ID informado; depois dela o papel volta ao da conexão (não vaza entre requisições).
 - **(a) Login como `app_backend` — OK:** o papel foi criado à mão no dev (`login`, `nosuperuser`, `nobypassrls`, membro de `authenticated`, senha aleatória gerada localmente e gravada só no `.env.local`). O login pelo pooler (`app_backend.<ref>`, porta 6543) funciona; a partir dele, `set local role authenticated` e `auth.uid()` funcionam e o papel volta a `app_backend` depois da transação; `auth.users` é negado (`42501`). **O plano B não é necessário.**
 - **Consequência para a migração (tarefa 3):** a criação de `app_backend` deve ser idempotente (não falhar se o papel já existir, nunca definir senha). Em produção, a senha será gerada e gravada do mesmo jeito, só nas variáveis da Vercel.
+
+## Revisão independente (subagente) e resposta
+Nenhum achado crítico; o desenho de RLS e de privilégios foi confirmado. Achados tratados:
+- **I1 (corrigido):** `describe.skipIf` ainda executa o corpo do `describe`; a trava e as conexões foram para `beforeAll`. Verificado: sem as variáveis, os testes de integração são pulados; com elas, rodam.
+- **I2 (corrigido):** o runtime só conhece `DATABASE_URL` e exige o papel `app_backend`. `DIRECT_URL` e `MIGRATION_PROJECT_REF` não entram no schema do app e não vão para a Vercel.
+- **I3 (corrigido na 0002):** a 0001 não reafirma atributos de um `app_backend` pré-existente. O `postgres` do Supabase não pode alterar `SUPERUSER`/`BYPASSRLS`/`REPLICATION`, então a 0002 **verifica e aborta** se o papel os tiver e reafirma `NOCREATEDB NOCREATEROLE NOINHERIT` e a associação a `authenticated`.
+- **I4 (corrigido na 0002):** no Supabase, tabelas novas criadas por `postgres` em `public` nasciam com `TRUNCATE/REFERENCES/TRIGGER/MAINTAIN` para `anon` e `authenticated` (TRUNCATE ignora a RLS). A 0002 remove esses privilégios padrão; teste de catálogo garante.
+- **M1 (corrigido):** `extractProjectRef` estrito (host conhecido; usuário `postgres` na conexão direta; recusa query string e conflitos usuário x host).
+- **M3 (corrigido):** lint também bloqueia `postgres` e `drizzle-orm/postgres-js` fora de `src/server/db/`; o tipo `Tx` é reexportado por `with-user.ts`.
+- **M4/M6 (corrigidos na 0002):** `REVOKE` da função também de `anon`; `statement_timeout=15s`, `lock_timeout=5s`, `idle_in_transaction_session_timeout=15s` para `app_backend`.
+- **Testes:** acrescentados admin inativo/removido, bootstrap (usuário sem perfil criando a si como admin), INSERT por recepção/inativo, edição do próprio nome, `anon`, e testes de catálogo (`catalog.test.ts`). O teste de "não vaza papel" agora usa a mesma conexão.
+
+**Pendências registradas (não bloqueiam a 1A-1):**
+- M2: `db:generate` exige `.env.local` (a trava roda também ao gerar). Aceito (falha fechada).
+- M5: `updated_at` só é atualizado via Drizzle (`$onUpdate`); considerar trigger quando houver escrita fora do ORM.
+- M6 (parcial): `max: 5` conexões por instância pode saturar o pooler em escala; revisar na 1A-3 / ao fazer o deploy.
+- M7: o ref do projeto dev aparece no `STATUS.md`; não é segredo.
+- `applyUserContext` é exportada só para os testes; mover para módulo de teste se a superfície incomodar.
+- Regra de negócio futura: impedir que o último admin ativo seja rebaixado/desativado.
+- Se um dia existir trigger em `auth.users` que cria `profiles`, os fixtures de teste vão colidir e precisarão ser ajustados.
