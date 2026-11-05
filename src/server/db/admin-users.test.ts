@@ -17,7 +17,13 @@ describe("parseLinkArgs", () => {
       email: "maria@clinica.com",
       role: "reception",
       fullName: "Maria Souza",
+      confirmed: false,
     });
+  });
+
+  it("--yes confirma (em qualquer posição) e não entra no nome", () => {
+    expect(parseLinkArgs(["a@b.co", "admin", "Ana", "Lopez", "--yes"])).toMatchObject({ fullName: "Ana Lopez", confirmed: true });
+    expect(parseLinkArgs(["--yes", "a@b.co", "admin", "Ana"])).toMatchObject({ fullName: "Ana", confirmed: true });
   });
 
   it("junta nome em várias palavras sem aspas e apara espaços", () => {
@@ -79,7 +85,7 @@ describe.skipIf(!hasDb)("admin-users (integração, Supabase dev)", () => {
   it("linkProfile cria o perfil com o papel e o nome informados", async () => {
     await inTx(async (tx, user) => {
       const result = await linkProfile(tx, { email: user.email, role: "reception", fullName: "Recepção Fictícia" });
-      expect(result).toEqual({ userId: user.id, created: true });
+      expect(result).toEqual({ userId: user.id, created: true, previous: null });
       const [row] = await tx`select role, full_name, active, deleted_at from public.profiles where id = ${user.id}`;
       expect(row).toMatchObject({ role: "reception", full_name: "Recepção Fictícia", active: true, deleted_at: null });
     });
@@ -90,7 +96,12 @@ describe.skipIf(!hasDb)("admin-users (integração, Supabase dev)", () => {
       await linkProfile(tx, { email: user.email, role: "reception", fullName: "Antigo" });
       await tx`update public.profiles set active = false, deleted_at = now() where id = ${user.id}`;
       const again = await linkProfile(tx, { email: user.email, role: "professional", fullName: "Novo Nome" });
-      expect(again).toEqual({ userId: user.id, created: false });
+      // devolve o estado ANTERIOR para o comando poder avisar/pedir confirmação
+      expect(again).toEqual({
+        userId: user.id,
+        created: false,
+        previous: { role: "reception", fullName: "Antigo", active: false, deleted: true },
+      });
       const [row] = await tx`select role, full_name, active, deleted_at from public.profiles where id = ${user.id}`;
       expect(row).toMatchObject({ role: "professional", full_name: "Novo Nome", active: true, deleted_at: null });
     });

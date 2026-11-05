@@ -21,9 +21,14 @@ export function parseLinkArgs(argv: readonly string[]): {
   email: string;
   role: UserRole;
   fullName: string;
+  /** `--yes`: necessário para alterar um perfil que JÁ existe. */
+  confirmed: boolean;
 } {
   if (argv.length === 0) throw new Error(USAGE_LINK);
-  const [rawEmail = "", rawRole = "", ...nameParts] = argv;
+  const confirmed = argv.includes("--yes");
+  const [rawEmail = "", rawRole = "", ...nameParts] = argv.filter(
+    (arg) => arg !== "--yes",
+  );
 
   const email = emailSchema.safeParse(rawEmail.trim().toLowerCase());
   if (!email.success) throw new Error(`E-mail inválido. ${USAGE_LINK}`);
@@ -42,7 +47,7 @@ export function parseLinkArgs(argv: readonly string[]): {
   if (!fullName || fullName.length > 120) {
     throw new Error(`Informe o nome completo (até 120 caracteres). ${USAGE_LINK}`);
   }
-  return { email: email.data, role, fullName };
+  return { email: email.data, role, fullName, confirmed };
 }
 
 export function parseResetMfaArgs(argv: readonly string[]): {
@@ -75,13 +80,26 @@ async function findAuthUserId(
   return rows[0]!.id;
 }
 
-/** Cria (ou atualiza e reativa) o perfil do usuário já existente no Auth. */
+export type PreviousProfile = {
+  role: UserRole;
+  fullName: string;
+  active: boolean;
+  deleted: boolean;
+};
+
+/**
+ * Cria (ou atualiza e reativa) o perfil do usuário já existente no Auth. Devolve o estado
+ * ANTERIOR (`previous`) para o comando mostrar o que vai mudar e pedir confirmação.
+ */
 export async function linkProfile(
   tx: postgres.TransactionSql,
   input: { email: string; role: UserRole; fullName: string },
-): Promise<{ userId: string; created: boolean }> {
+): Promise<{ userId: string; created: boolean; previous: PreviousProfile | null }> {
   const userId = await findAuthUserId(tx, input.email);
-  const existing = await tx`select 1 from public.profiles where id = ${userId}`;
+  const existing = await tx<
+    { role: UserRole; full_name: string; active: boolean; deleted_at: Date | null }[]
+  >`select role, full_name, active, deleted_at from public.profiles where id = ${userId}`;
+  const before = existing[0];
   await tx`
     insert into public.profiles (id, full_name, role)
     values (${userId}, ${input.fullName}, ${input.role})
@@ -91,7 +109,18 @@ export async function linkProfile(
       active = true,
       deleted_at = null,
       updated_at = now()`;
-  return { userId, created: existing.length === 0 };
+  return {
+    userId,
+    created: !before,
+    previous: before
+      ? {
+          role: before.role,
+          fullName: before.full_name,
+          active: before.active,
+          deleted: before.deleted_at !== null,
+        }
+      : null,
+  };
 }
 
 /**

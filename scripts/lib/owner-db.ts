@@ -1,7 +1,7 @@
 import { config } from "dotenv";
 import postgres from "postgres";
 
-import { assertMigrationTarget } from "../../src/server/db/migration-guard";
+import { assertMigrationTarget, extractProjectRef } from "../../src/server/db/migration-guard";
 
 config({ path: ".env.local", quiet: true });
 
@@ -30,6 +30,11 @@ export async function withOwnerTransaction<T>(
   } finally {
     await sql.end({ timeout: 2 });
   }
+}
+
+/** Ref do projeto Supabase de destino (não é segredo), para o operador conferir. */
+export function targetProject(): string {
+  return extractProjectRef(process.env.DIRECT_URL ?? "") ?? "desconhecido";
 }
 
 /** m***@dominio.com — evita espalhar e-mails completos no terminal. */
