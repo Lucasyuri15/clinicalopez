@@ -122,7 +122,7 @@ Filtros por período, especialidade e profissional.
 - **Sigilo profissional:** prontuário isolado por profissional, com autorização aplicada no servidor (camada de acesso a dados única) **e** reforçada por **Row Level Security** no banco (defesa em profundidade).
 - **Desempenho:** telas principais (agenda/dashboard) carregam em < 2s para o porte previsto.
 - **Sistema exposto à internet:** por estar público, exige defesas reforçadas:
-  - **2FA (TOTP) obrigatório** para admin e profissionais (recomendado também para recepção); senhas fortes e sessões com expiração.
+  - **2FA (TOTP) obrigatório para todos os perfis** (admin, recepção e profissionais; decisão da Fase 1A-2); senhas fortes e sessões com expiração.
   - **Limite de tentativas de login** (rate limiting) e proteção contra enumeração de usuários.
   - **Bloqueio de indexação** (`noindex`, `robots.txt`) e cabeçalhos de segurança (HSTS, CSP, etc.).
   - Todas as rotas e ações autenticadas e autorizadas; **nenhum cadastro público** (usuários criados pelo admin).
@@ -146,8 +146,8 @@ Filtros por período, especialidade e profissional.
 | Hospedagem da app | **Vercel** (plano Pro), funções na região `gru1` (São Paulo) |
 | Banco | **Supabase Postgres**, região `sa-east-1`, com *connection pooling* para ambiente serverless |
 | ORM/migrações | **Drizzle** (decidido na Fase 1A-1); migrações versionadas (incluindo as políticas de RLS em SQL). O app conecta com o papel `app_backend` (sem BYPASSRLS) e cada requisição assume o papel `authenticated` com o usuário logado, para a RLS valer de verdade; migrações usam o papel `postgres`. Ver `docs/specs/2026-11-05-fase-1a1-banco-rls.md` |
-| Autenticação | **Supabase Auth** com **MFA (TOTP)**; usuários criados somente pelo admin |
-| Autorização | RBAC (admin, recepção, profissional) no servidor + **RLS** no banco |
+| Autenticação | **Supabase Auth** com **MFA (TOTP) obrigatório para todos**; sem cadastro público. Na Fase 1A-2 os usuários são criados **pelo painel do Supabase** (sem chave *secret* no app) e o papel é vinculado por comando local (`pnpm users:link`); a tela de usuários no app fica para a 1B. Recuperação de 2FA por comando local do dono (`pnpm users:reset-mfa`): os *recovery codes* do Supabase são experimentais e não são usados. Sem "esqueci minha senha" por e-mail até haver SMTP próprio (reset pelo painel) |
+| Autorização | RBAC (admin, recepção, profissional) no servidor + **RLS** no banco. Acesso por tela (1A-2): **admin** = tudo; **recepção** = Dashboard, Agenda, Pacientes, Financeiro; **profissional** = Dashboard, Agenda, Pacientes (recortes próprios virão com os cadastros); Profissionais, Serviços e Configurações = só admin |
 | Anexos | **Supabase Storage**, buckets privados e URLs assinadas de curta duração |
 | Tarefas agendadas | **Vercel Cron** chamando rotas protegidas por segredo (lembretes WhatsApp, exportação de backup); frequência depende do plano |
 | WhatsApp | API oficial (Cloud API); webhook como rota da aplicação com validação de assinatura |
@@ -223,5 +223,5 @@ Detalhes (UI kit, biblioteca de calendário, testes) serão definidos na fase de
 2. **WhatsApp:** há CNPJ e número dedicado para a API oficial da Meta? Definir em qual fase ativar.
 3. **Domínio:** domínio próprio (ex.: `app.lopezmaissaude.com.br`) e quem administra o DNS.
 4. **Backup externo:** onde guardar a exportação criptografada periódica e quem verifica os alertas.
-5. **2FA:** confirmar app autenticador para cada usuário (e política de recuperação de acesso).
+5. **2FA:** *resolvida na 1A-2* — obrigatório para todos, app autenticador (TOTP); recuperação por comando local do dono. Resta orientar cada usuário a instalar um app autenticador.
 6. **Logo original** (SVG ou PNG de alta resolução). O hex do amarelo já foi medido (`#F7CB2C`).
