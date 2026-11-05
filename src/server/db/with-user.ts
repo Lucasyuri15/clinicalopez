@@ -5,6 +5,9 @@ import { z } from "zod";
 
 import { getDb, type Tx } from "./client";
 
+// Código de negócio importa o tipo daqui (o módulo do cliente cru é proibido fora de db/).
+export type { Tx };
+
 const userIdSchema = z.guid();
 
 /**

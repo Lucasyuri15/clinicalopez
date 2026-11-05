@@ -14,11 +14,23 @@ const eslintConfig = defineConfig([
       "no-restricted-imports": [
         "error",
         {
+          paths: [
+            {
+              name: "postgres",
+              message:
+                "Não crie conexões com o banco fora de src/server/db/. Use `withUser` de '@/server/db/with-user'.",
+            },
+            {
+              name: "drizzle-orm/postgres-js",
+              message:
+                "Não crie clientes Drizzle fora de src/server/db/. Use `withUser` de '@/server/db/with-user'.",
+            },
+          ],
           patterns: [
             {
               regex: "(^|/)db/client$",
               message:
-                "Não importe o cliente cru do banco. Use `withUser` de '@/server/db/with-user'.",
+                "Não importe o cliente cru do banco. Use `withUser` (e o tipo `Tx`) de '@/server/db/with-user'.",
             },
           ],
         },
