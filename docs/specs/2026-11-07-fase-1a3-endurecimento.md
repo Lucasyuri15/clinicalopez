@@ -92,6 +92,12 @@ Quem está em `/login` com sessão vencida vê a tela (cookies já limpos), sem 
 - Quem apaga o cookie `ls_activity` apenas reinicia a contagem (igual a "sem registro").
 - O `signOut` pendurado por 3 s atrasa essa requisição; depois disso os cookies são apagados do mesmo jeito (a sessão no Supabase fica sem revogar até o JWT/refresh expirarem).
 
+## T4 — pool e variáveis por ambiente: como ficou (e o que difere do plano)
+- **Pool:** só `connect_timeout: 10` (padrão do driver: 30 s). **Não** acrescentei `max_lifetime`: conferido em `node_modules/postgres/src/index.js`, o padrão já é aleatório entre 30 e 60 min, então fixar um valor não mudaria nada. `max: 5` mantido. Opções travadas em `src/server/db/client.test.ts`.
+- **Guarda de projeto** em `parseServerEnv` (`src/server/env.ts`): `NEXT_PUBLIC_SUPABASE_URL` (`https://<ref>.supabase.co`) e o usuário `app_backend.<ref>` da `DATABASE_URL` precisam ter o mesmo `<ref>` (sem diferenciar maiúsculas); senão lança erro citando só os NOMES das variáveis (nem senha nem ref). Evita um Preview com Auth de um projeto e banco de outro (JWT de um valendo contra a RLS do outro). Só compara quando os dois refs existem: domínio próprio, Supabase local e papel puro `app_backend` ficam de fora (se um dia o projeto usar domínio próprio no Supabase, a guarda precisa ser revista).
+- **Diferença do plano:** o plano dizia "falha ao iniciar"; a guarda roda em `getServerEnv`, ou seja, na **primeira consulta ao banco** (não há `instrumentation.ts` e não quis arriscar o build). Na prática o login recusa na primeira tentativa e o log mostra a mensagem. Se quiser falha no boot, é um `instrumentation.ts` chamando `getServerEnv()`.
+- **Docs:** tabela variável × ambiente e checklist de produção em `docs/STATUS.md`; `.env.example` e `AGENTS.md` atualizados. Produção continua NÃO criada.
+
 ## Limitações conhecidas (a registrar ao implementar)
 - O cookie de atividade (inatividade) não é assinado: protege computador esquecido aberto, não cookie roubado (mitigado por `HttpOnly`, `Secure` e JWT curto).
 - `getUser()` em operações sensíveis (#6) fica adiado até existirem operações sensíveis (prontuário, 1B+).

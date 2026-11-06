@@ -21,7 +21,6 @@ describe.skipIf(!hasDb)("pool do app (integração, Supabase dev)", () => {
     sql = postgres(process.env.DATABASE_URL ?? "", {
       ...APP_POSTGRES_OPTIONS,
       onnotice: () => {},
-      connect_timeout: 10,
     });
   });
   afterAll(async () => {

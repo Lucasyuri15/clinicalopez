@@ -45,6 +45,42 @@ const serverEnvSchema = z.object({
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
 
+/** `<ref>` de `https://<ref>.supabase.co`; `null` para domínio próprio, Supabase local ou lixo. */
+function refFromSupabaseUrl(value: string | undefined): string | null {
+  try {
+    const host = new URL(value ?? "").hostname.toLowerCase();
+    const match = /^([a-z0-9]+)\.supabase\.co$/.exec(host);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** `<ref>` do usuário `app_backend.<ref>` do pooler; `null` se for o papel puro. */
+function refFromDatabaseUrl(value: string): string | null {
+  const user = decodeURIComponent(new URL(value).username);
+  const dot = user.indexOf(".");
+  return dot === -1 ? null : user.slice(dot + 1).toLowerCase() || null;
+}
+
+/**
+ * Auth (URL pública) e banco (`DATABASE_URL`) têm de ser do MESMO projeto Supabase. Sem isso,
+ * um Preview poderia autenticar no projeto de produção e ler o banco de dev (ou o inverso):
+ * o JWT de um projeto valendo contra a RLS de outro. Só compara quando os dois refs existem
+ * (domínio próprio, Supabase local e papel puro ficam de fora). Cita só os NOMES das variáveis.
+ */
+function assertSameProject(source: Record<string, string | undefined>, databaseUrl: string) {
+  const authRef = refFromSupabaseUrl(source.NEXT_PUBLIC_SUPABASE_URL);
+  const dbRef = refFromDatabaseUrl(databaseUrl);
+  if (authRef && dbRef && authRef !== dbRef) {
+    throw new Error(
+      "NEXT_PUBLIC_SUPABASE_URL e DATABASE_URL apontam para projetos Supabase diferentes. " +
+        "Os dois precisam ser do mesmo projeto (Preview → dev; Production → produção). " +
+        "Confira as variáveis do ambiente na Vercel (ou o .env.local).",
+    );
+  }
+}
+
 /**
  * Valida as variáveis de ambiente do servidor.
  * A mensagem de erro cita apenas o NOME das variáveis, nunca o valor
@@ -54,7 +90,10 @@ export function parseServerEnv(
   source: Record<string, string | undefined>,
 ): ServerEnv {
   const result = serverEnvSchema.safeParse(source);
-  if (result.success) return result.data;
+  if (result.success) {
+    assertSameProject(source, result.data.DATABASE_URL);
+    return result.data;
+  }
 
   const names = [
     ...new Set(result.error.issues.map((issue) => String(issue.path[0]))),
@@ -70,6 +109,7 @@ let cached: ServerEnv | undefined;
 export function getServerEnv(): ServerEnv {
   cached ??= parseServerEnv({
     DATABASE_URL: process.env.DATABASE_URL,
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     CLIENT_IP_HEADER: process.env.CLIENT_IP_HEADER,
   });
   return cached;
