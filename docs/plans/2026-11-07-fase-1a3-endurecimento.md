@@ -37,9 +37,10 @@ Resultado completo na spec. Com `cacheComponents` + `partialPrefetching` o nonce
 - **Ações**: `src/server/auth/actions.ts` — `login`, `verifyMfaLogin` e `verifyMfaEnroll` chamam `check` **antes** do Supabase, `record_failure` no erro, `reset` no sucesso. Bloqueado → mesma mensagem `rateLimited` existente (sem dizer se o e-mail existe).
 - Testes: unitários da política; ações com mock (bloqueia antes de chamar o Supabase, mensagem genérica, reset no sucesso); **teste de integração no banco dev** (`src/server/db/rate-limit.test.ts`, transação revertida, dados fictícios): escalonamento, janela, reset, IP A não bloqueia IP B, `authenticated` e `anon` **não** executam as funções nem leem a tabela.
 
-### T3 — Sessão: JWT curto e timeout de inatividade
+### T3 — Sessão: JWT curto e timeout de inatividade — FEITO (código); JWT é passo manual
+Como ficou (cookie `ls_activity` só no `proxy`, `signOut` local + limpeza própria dos cookies, Server Action sem 307, e2e que envelhece o cookie; o prefetch NÃO é tratado à parte: o Next remove os cabeçalhos dele antes do proxy): ver a spec, seção "T3". Abaixo, o plano original.
 - **Painel (passo manual do usuário)**: JWT expiry 1800 s (campo ainda não localizado; se não achar, o teto passa a ser a inatividade + cookie de 8 h). **NÃO apertar** Authentication → Rate Limits (login e MFA): corrigido após a revisão do T2, pois todo o tráfego do app sai por poucos IPs da Vercel e apertar aproxima o teto do balde compartilhado (ver a spec, achado #2).
-- `src/proxy.ts` + novo `src/lib/auth/inactivity.ts` (puro): cookie `HttpOnly`/`Secure` com a hora da última atividade, atualizado em navegações reais (ignorar prefetch e assets). Passou de 30 min → `signOut({ scope: "local" })`, apaga cookies e redireciona a `/login`. Reaproveitar `finalizeCookieOptions` (`src/lib/supabase/cookie-options.ts`).
+- `src/proxy.ts` + novo `src/lib/auth/inactivity.ts` (puro): cookie `HttpOnly`/`Secure` com a hora da última atividade, atualizado em navegações reais. Passou de 30 min → `signOut({ scope: "local" })`, apaga cookies e redireciona a `/login`. Reaproveitar `finalizeCookieOptions` (`src/lib/supabase/cookie-options.ts`).
 - Limitação a registrar na spec: o cookie de atividade não é assinado; protege computador esquecido aberto, não cookie roubado (mitigado por `HttpOnly` + `Secure` + JWT curto). Constantes (30 min, 8 h) num só lugar.
 - Testes: unitário do `inactivity.ts` (limite exato, relógio injetado); `proxy.test.ts` (expirado → login + cookies apagados; ativo → renova); e2e com relógio do Playwright avançado.
 
