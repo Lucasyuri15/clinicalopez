@@ -307,6 +307,39 @@ describe("verifyMfaLogin", () => {
     expect(auth.mfa.challengeAndVerify).toHaveBeenCalledWith({ factorId: FACTOR_ID, code: "654321" });
   });
 
+  it("mais de um fator verificado: erro genérico, sem escolher um 'primeiro' (recuperação: users:reset-mfa)", async () => {
+    withSession("aal1");
+    withLevels("aal1", "aal2");
+    auth.mfa.listFactors.mockResolvedValue({
+      data: {
+        all: [],
+        totp: [
+          { id: FACTOR_ID, status: "verified" },
+          { id: "33333333-3333-4333-8333-333333333333", status: "verified" },
+        ],
+      },
+      error: null,
+    });
+    expect(await verifyMfaLogin(undefined, form({ code: "654321" }))).toEqual({
+      error: "Não foi possível concluir. Tente novamente.",
+    });
+    expect(auth.mfa.challengeAndVerify).not.toHaveBeenCalled();
+    expect(limiter.beginRateLimited).not.toHaveBeenCalled(); // não gasta tentativa
+  });
+
+  it("falha ao ler os fatores: erro genérico (não manda cadastrar outro 2FA)", async () => {
+    withSession("aal1");
+    withLevels("aal1", "aal2");
+    // 1ª leitura (passo) funciona; a 2ª, dentro da ação, falha.
+    auth.mfa.listFactors
+      .mockResolvedValueOnce({ data: { all: [], totp: [{ id: FACTOR_ID, status: "verified" }] }, error: null })
+      .mockResolvedValueOnce({ data: null, error: new Error("falha") });
+    expect(await verifyMfaLogin(undefined, form({ code: "654321" }))).toEqual({
+      error: "Não foi possível concluir. Tente novamente.",
+    });
+    expect(auth.mfa.challengeAndVerify).not.toHaveBeenCalled();
+  });
+
   it("código errado e limite de tentativas têm mensagens próprias", async () => {
     withSession("aal1");
     withLevels("aal1", "aal2");
