@@ -11,7 +11,8 @@ Sistema interno de agendamentos e gestão para a clínica familiar López + Saú
 **Instalado (Fase 1A-2):** **Supabase Auth** (`@supabase/ssr`, `@supabase/supabase-js`) com login por senha + **2FA TOTP obrigatório para todos**, `src/proxy.ts`, RBAC · `tsx` (scripts locais) e `otpauth` (só testes).
 **Instalado (Fase 1A-3, em andamento):** **CSP com nonce** gerada no `src/proxy.ts` (`src/lib/security/csp.ts`; `script-src` sem `unsafe-inline`; `img-src data:` só para o QR do 2FA).
 **Instalado (Fase 1A-3):** limite de tentativas próprio (login e 2FA, por IP real e e-mail+IP; tabela `auth_attempts` só acessível por funções SQL) · **timeout de inatividade de 30 min** (cookie `ls_activity` gerido só pelo `src/proxy.ts`; regras em `src/lib/auth/inactivity.ts`).
-**Planejado:** ajustes do pool, guarda de variáveis por ambiente e checklist de produção (resto da 1A-3) · deploy na **Vercel** · Storage (Fase 4).
+**Instalado (Fase 1A-3, T4):** `connect_timeout` no pool e guarda de mesmo projeto entre Auth e banco.
+**Planejado:** pendências da revisão da 1A-2 e docs finais (resto da 1A-3) · deploy na **Vercel** · Storage (Fase 4).
 
 > O Next.js desta versão tem mudanças de API: antes de escrever código de framework, consulte `node_modules/next/dist/docs/` (veja o bloco ao final deste arquivo). Se um comando abaixo ainda não existir, crie-o em vez de inventar alternativa e mantenha esta seção atualizada.
 
@@ -39,7 +40,7 @@ pnpm backup                  # exporta banco + anexos criptografados (ver PRD, s
 
 **Testes de integração do banco** (`src/server/db/*.test.ts`) rodam contra o Supabase **dev** usando o `.env.local`, em transações sempre revertidas e só com dados fictícios. Sem `.env.local` eles são **pulados** (a suíte continua verde). Eles recusam rodar fora do projeto de `MIGRATION_PROJECT_REF`.
 
-**Variáveis (`.env.local`, modelo em `.env.example`):** `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (públicas), `DATABASE_URL` (Transaction pooler, porta 6543, usuário `app_backend.<ref>`), `DIRECT_URL` (Session pooler, porta 5432, usuário `postgres.<ref>`; a conexão direta do plano Free é só IPv6) e `MIGRATION_PROJECT_REF`. A senha de `app_backend` é gerada fora do Git, **nunca** vai em migração, chat ou commit. Na Vercel configure **somente** as duas variáveis públicas e `DATABASE_URL`: `DIRECT_URL` (dono `postgres`) e `MIGRATION_PROJECT_REF` não vão para o app. O app recusa iniciar se `DATABASE_URL` não usar o papel `app_backend`.
+**Variáveis (`.env.local`, modelo em `.env.example`):** `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (públicas), `DATABASE_URL` (Transaction pooler, porta 6543, usuário `app_backend.<ref>`), `DIRECT_URL` (Session pooler, porta 5432, usuário `postgres.<ref>`; a conexão direta do plano Free é só IPv6) e `MIGRATION_PROJECT_REF`. A senha de `app_backend` é gerada fora do Git, **nunca** vai em migração, chat ou commit. Na Vercel configure **somente** as duas variáveis públicas e `DATABASE_URL`: `DIRECT_URL` (dono `postgres`) e `MIGRATION_PROJECT_REF` não vão para o app. O app recusa iniciar se `DATABASE_URL` não usar o papel `app_backend` ou se o projeto dela (`app_backend.<ref>`) for diferente do de `NEXT_PUBLIC_SUPABASE_URL`. Tabela variável × ambiente e checklist de produção: `docs/STATUS.md`.
 
 ## Estrutura (alvo)
 ```

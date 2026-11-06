@@ -44,7 +44,8 @@ Como ficou (cookie `ls_activity` só no `proxy`, `signOut` local + limpeza próp
 - Limitação a registrar na spec: o cookie de atividade não é assinado; protege computador esquecido aberto, não cookie roubado (mitigado por `HttpOnly` + `Secure` + JWT curto). Constantes (30 min, 8 h) num só lugar.
 - Testes: unitário do `inactivity.ts` (limite exato, relógio injetado); `proxy.test.ts` (expirado → login + cookies apagados; ativo → renova); e2e com relógio do Playwright avançado.
 
-### T4 — Pool de conexões e variáveis por ambiente
+### T4 — Pool de conexões e variáveis por ambiente — FEITO
+Como ficou (só `connect_timeout`, sem `max_lifetime` porque o padrão do driver já é 30–60 min; guarda roda na primeira consulta ao banco): ver a spec, seção "T4". Abaixo, o plano original.
 - `src/server/db/client.ts`: manter `max: 5` por instância (o pooler em modo transação absorve; Free comporta ~200 clientes) e acrescentar `connect_timeout: 10` e `max_lifetime` (30 min). Justificar numa linha de comentário.
 - Guarda nova em `src/server/env.ts`: o `ref` do projeto em `NEXT_PUBLIC_SUPABASE_URL` precisa ser o mesmo do usuário `app_backend.<ref>` da `DATABASE_URL`; senão falha ao iniciar. Evita Preview apontando a Auth de um projeto e o banco de outro. Teste unitário.
 - `docs/STATUS.md` + `AGENTS.md`: tabela "variável × ambiente" (Preview → dev, Production → prod; só 2 públicas + `DATABASE_URL`; `CLIENT_IP_HEADER` opcional) e checklist manual de produção (criar projeto, desligar cadastro e Data API, TOTP, JWT, limites, `app_backend`).
