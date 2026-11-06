@@ -50,7 +50,8 @@ Como ficou (só `connect_timeout`, sem `max_lifetime` porque o padrão do driver
 - Guarda nova em `src/server/env.ts`: o `ref` do projeto em `NEXT_PUBLIC_SUPABASE_URL` precisa ser o mesmo do usuário `app_backend.<ref>` da `DATABASE_URL`; senão falha ao iniciar. Evita Preview apontando a Auth de um projeto e o banco de outro. Teste unitário.
 - `docs/STATUS.md` + `AGENTS.md`: tabela "variável × ambiente" (Preview → dev, Production → prod; só 2 públicas + `DATABASE_URL`; `CLIENT_IP_HEADER` opcional) e checklist manual de produção (criar projeto, desligar cadastro e Data API, TOTP, JWT, limites, `app_backend`).
 
-### T5 — Pendências da revisão da 1A-2 (#11)
+### T5 — Pendências da revisão da 1A-2 (#11) — FEITO
+Como ficou: ver a spec, seção "T5". Abaixo, o plano original.
 - `verifyMfaLogin` usa o primeiro fator verificado: aceitar só quando há exatamente um e tratar o caso contrário como erro genérico (teste).
 - Teste de integração: DAL com perfil **inativo** contra o banco real (hoje só mock).
 - e2e: chamar Server Action de 2FA com `aal1` fora do passo e ver o redirecionamento.

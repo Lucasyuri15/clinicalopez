@@ -184,9 +184,15 @@ export async function verifyMfaLogin(
     return { error: code.error.issues[0]?.message ?? MESSAGES.invalidCode };
   }
 
-  const { data: factors } = await supabase.auth.mfa.listFactors();
-  const factor = factors?.totp?.[0];
-  if (!factor) redirect("/mfa/enroll");
+  // `listFactors().totp` já traz só os fatores VERIFICADOS. Aceita exatamente UM: com dois ou
+  // mais não há "o" fator certo (escolher o primeiro seria arbitrário) e sem leitura confiável
+  // não se manda ninguém cadastrar outro 2FA. Nos dois casos: erro genérico, sem gastar
+  // tentativa (recuperação: `pnpm users:reset-mfa`).
+  const { data: factors, error: factorsError } = await supabase.auth.mfa.listFactors();
+  if (factorsError || !factors) return { error: MESSAGES.generic };
+  if (factors.totp.length === 0) redirect("/mfa/enroll");
+  const [factor, ...others] = factors.totp;
+  if (!factor || others.length > 0) return { error: MESSAGES.generic };
 
   const gate = await beginRateLimited("mfa", await sessionUserId(supabase));
   if (gate.status !== "allowed") return { error: gateMessage(gate) };

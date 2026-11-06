@@ -113,3 +113,21 @@ export async function deleteFixtureUser(email: string): Promise<void> {
     await sql.end({ timeout: 2 });
   }
 }
+
+/** Fatores de 2FA de um usuário fictício (para provar que uma ação NÃO cadastrou outro). */
+export async function factorCounts(email: string): Promise<{ verified: number; unverified: number }> {
+  if (!email.startsWith(FIXTURE_PREFIX) || !email.endsWith(`@${FIXTURE_DOMAIN}`)) {
+    throw new Error("Recusado: só leio usuários fictícios dos e2e.");
+  }
+  const sql = connect();
+  try {
+    const [row] = await sql<{ verified: number; unverified: number }[]>`
+      select count(*) filter (where f.status = 'verified')::int as verified,
+             count(*) filter (where f.status = 'unverified')::int as unverified
+      from auth.mfa_factors f join auth.users u on u.id = f.user_id
+      where u.email = ${email}`;
+    return row ?? { verified: 0, unverified: 0 };
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
