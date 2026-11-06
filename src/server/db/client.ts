@@ -26,6 +26,8 @@ export const APP_POSTGRES_OPTIONS = {
   // (medido: 6 consultas simultâneas sobre `max: 5` já nunca voltavam). Ver pool.test.ts.
   max_pipeline: 1,
   idle_timeout: 20,
+  // O padrão do driver é 30 s: uma conexão que não sobe seguraria a requisição por meio minuto.
+  connect_timeout: 10,
 } as const;
 
 function getSql() {
