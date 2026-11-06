@@ -28,6 +28,13 @@ export async function proxy(request: NextRequest) {
   const decision = decideRoute({ pathname: request.nextUrl.pathname, aal });
   if (decision.action === "next") return response;
 
+  // Server Action (POST com `next-action`): o cliente do Next NÃO sabe seguir um 307 do proxy
+  // ("This page couldn't load"). Passa, com os cookies já limpos/renovados em `response`, e a
+  // própria ação revalida a sessão e faz `redirect("/login")`, que o Next trata direito. Não
+  // enfraquece nada: o POST de uma ação vai para o caminho da PÁGINA (um atacante o aponta
+  // para `/login`, que é pública), então a proteção de cada ação é a dela (`requireUser` etc.).
+  if (request.method === "POST" && request.headers.has("next-action")) return response;
+
   // Destino fixo no mesmo domínio; query descartada (nada de `?next=` aberto).
   const target = request.nextUrl.clone();
   target.pathname = decision.to;
