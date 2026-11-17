@@ -14,7 +14,8 @@ Sistema interno de agendamentos e gestão para a clínica familiar López + Saú
 **Instalado (Fase 1A-3, T4):** `connect_timeout` no pool e guarda de mesmo projeto entre Auth e banco.
 **Instalado (Fase 1A-3, T5):** `verifyMfaLogin` exige exatamente um fator; testes da DAL contra o banco e e2e de ação fora do passo.
 **Instalado (Fase 1A-3, T6):** revisão final independente; teste que exige proteção em toda Server Action (`src/server/auth/server-actions-guard.test.ts`).
-**Planejado:** Fase 1B (cadastros) · deploy na **Vercel** · Storage (Fase 4).
+**Instalado (Fase 1B-1):** catálogo de **serviços, convênios e valores** (`services`, `insurances`, `service_prices`; telas `/servicos` e `/convenios`). O profissional vê serviços, **nunca valores nem convênios** (RLS por linha: por isso o valor é tabela própria, não coluna).
+**Planejado:** 1B-2 (profissionais e grade) e 1B-3 (pacientes) · deploy na **Vercel** · Storage (Fase 4).
 
 > O Next.js desta versão tem mudanças de API: antes de escrever código de framework, consulte `node_modules/next/dist/docs/` (veja o bloco ao final deste arquivo). Se um comando abaixo ainda não existir, crie-o em vez de inventar alternativa e mantenha esta seção atualizada.
 
@@ -58,6 +59,8 @@ src/server/db/      schema.ts, migrations/ (SQL versionado), client.ts (cliente 
                     with-user.ts (`withUser`: único acesso a dados), migration-guard.ts, admin-users.ts, testes de RLS
 src/server/auth/    session.ts (DAL: requireUser/requireRole/requirePageAccess), actions.ts (Server Actions
                     de login/2FA/logout), mfa-step.ts, step-gate.tsx
+src/lib/catalog/    schemas.ts (Zod de serviços/convênios/valores), labels.ts (especialidades pt-BR) (puros, testados)
+src/server/catalog/ queries.ts e mutations.ts (só `withUser`), actions.ts (Server Actions, todas `requireRole("admin")`)
 src/lib/auth/       access.ts (matriz de acesso por tela), route-guard.ts, steps.ts, schemas.ts, qr.ts (puros, testados)
 src/lib/supabase/   env.ts (variáveis públicas), server.ts (cliente por requisição), proxy.ts (renovação de sessão)
 src/proxy.ts        checagem OTIMISTA de sessão em todas as rotas (só JWT, sem banco)

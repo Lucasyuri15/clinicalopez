@@ -4,17 +4,26 @@ import { testAs } from "./support/auth";
 import type { Role } from "./support/db";
 import { HAS_SUPABASE } from "./support/env";
 
-const ALL = ["Dashboard", "Agenda", "Pacientes", "Profissionais", "Serviços", "Financeiro", "Configurações"];
+const ALL = [
+  "Dashboard",
+  "Agenda",
+  "Pacientes",
+  "Profissionais",
+  "Serviços",
+  "Convênios",
+  "Financeiro",
+  "Configurações",
+];
 
 const EXPECTED: Record<Role, { visible: string[]; denied: string[] }> = {
   admin: { visible: ALL, denied: [] },
   reception: {
-    visible: ["Dashboard", "Agenda", "Pacientes", "Financeiro"],
-    denied: ["/profissionais", "/servicos", "/configuracoes"],
+    visible: ["Dashboard", "Agenda", "Pacientes", "Serviços", "Convênios", "Financeiro"],
+    denied: ["/profissionais", "/configuracoes"],
   },
   professional: {
-    visible: ["Dashboard", "Agenda", "Pacientes"],
-    denied: ["/profissionais", "/servicos", "/financeiro", "/configuracoes"],
+    visible: ["Dashboard", "Agenda", "Pacientes", "Serviços"],
+    denied: ["/profissionais", "/convenios", "/financeiro", "/configuracoes"],
   },
 };
 

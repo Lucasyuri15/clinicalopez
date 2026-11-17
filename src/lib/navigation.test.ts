@@ -11,6 +11,17 @@ describe("NAV_ITEMS", () => {
     }
   });
 
+  test("Serviços e Convênios estão no menu, nessa ordem, logo depois de Profissionais", () => {
+    const hrefs = NAV_ITEMS.map((item) => item.href);
+    expect(hrefs.slice(hrefs.indexOf("/profissionais"))).toEqual([
+      "/profissionais",
+      "/servicos",
+      "/convenios",
+      "/financeiro",
+      "/configuracoes",
+    ]);
+  });
+
   test("começa pelo dashboard", () => {
     expect(NAV_ITEMS[0]?.href).toBe("/dashboard");
   });

@@ -131,3 +131,80 @@ export async function factorCounts(email: string): Promise<{ verified: number; u
     await sql.end({ timeout: 2 });
   }
 }
+
+/**
+ * Catálogo fictício dos e2e (serviços, convênios e valores), etiquetado no NOME (`[e2e-cat xxxx]`)
+ * para apagar só o que o teste criou. Criado pelo dono do banco (fora da RLS) para os testes de
+ * leitura por papel; o teste do administrador cria os seus pela tela.
+ */
+export function catalogTag(): string {
+  return `[e2e-cat ${randomUUID().slice(0, 8)}]`;
+}
+
+export async function seedCatalog(tag: string): Promise<{
+  serviceName: string;
+  insuranceName: string;
+  insuranceId: string;
+}> {
+  const sql = connect();
+  try {
+    return await sql.begin(async (tx) => {
+      const serviceName = `${tag} Fisioterapia`;
+      const insuranceName = `${tag} Plano Ficticio`;
+      const [service] = await tx`insert into public.services (name, specialty, duration_minutes)
+        values (${serviceName}, 'physiotherapy', 50) returning id`;
+      const [insurance] = await tx`insert into public.insurances (name) values (${insuranceName}) returning id`;
+      await tx`insert into public.service_prices (service_id, insurance_id, price_cents)
+        values (${service!.id}, null, 8765431), (${service!.id}, ${insurance!.id}, 7654321)`;
+      return { serviceName, insuranceName, insuranceId: insurance!.id as string };
+    });
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+/** Apaga o catálogo criado pelo teste (valores, serviços e convênios cujo nome começa com a etiqueta). */
+export async function deleteCatalog(tag: string): Promise<void> {
+  if (!/^\[e2e-cat [0-9a-f]{8}\]$/.test(tag)) throw new Error("Recusado: etiqueta de e2e inválida.");
+  const sql = connect();
+  try {
+    await sql.begin(async (tx) => {
+      const like = `${tag}%`;
+      await tx`delete from public.service_prices
+        where service_id in (select id from public.services where name like ${like})
+           or insurance_id in (select id from public.insurances where name like ${like})`;
+      await tx`delete from public.services where name like ${like}`;
+      await tx`delete from public.insurances where name like ${like}`;
+    });
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+/** Estado REAL gravado (para provar que a tela gravou, ou que uma ação negada não gravou). */
+export async function catalogState(tag: string): Promise<{
+  services: { name: string; durationMinutes: number; active: boolean; particularCents: number | null }[];
+  insurances: { name: string; active: boolean }[];
+  insurancePrices: { insurance: string; service: string; cents: number }[];
+}> {
+  const sql = connect();
+  try {
+    const like = `${tag}%`;
+    const services = await sql<{ name: string; durationMinutes: number; active: boolean; particularCents: number | null }[]>`
+      select s.name, s.duration_minutes as "durationMinutes", s.active,
+        (select p.price_cents from public.service_prices p
+          where p.service_id = s.id and p.insurance_id is null and p.deleted_at is null) as "particularCents"
+      from public.services s where s.name like ${like} and s.deleted_at is null order by s.name`;
+    const insurances = await sql<{ name: string; active: boolean }[]>`
+      select name, active from public.insurances where name like ${like} and deleted_at is null order by name`;
+    const insurancePrices = await sql<{ insurance: string; service: string; cents: number }[]>`
+      select i.name as insurance, s.name as service, p.price_cents as cents
+      from public.service_prices p
+      join public.insurances i on i.id = p.insurance_id
+      join public.services s on s.id = p.service_id
+      where i.name like ${like} and p.deleted_at is null order by i.name, s.name`;
+    return { services, insurances, insurancePrices };
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
