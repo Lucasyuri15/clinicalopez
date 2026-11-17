@@ -208,3 +208,109 @@ export async function catalogState(tag: string): Promise<{
     await sql.end({ timeout: 2 });
   }
 }
+
+/**
+ * Profissionais fictícios dos e2e, etiquetados no NOME com a MESMA etiqueta do catálogo
+ * (`catalogTag()`): `deleteProfessionals(tag)` apaga os profissionais ANTES de `deleteCatalog(tag)`
+ * (as ligações com serviços são `restrict`) e antes de apagar qualquer login fictício.
+ */
+export function profileIdByEmail(email: string): Promise<string> {
+  if (!email.startsWith(FIXTURE_PREFIX) || !email.endsWith(`@${FIXTURE_DOMAIN}`)) {
+    throw new Error("Recusado: só leio usuários fictícios dos e2e.");
+  }
+  const sql = connect();
+  return sql`select id from auth.users where email = ${email}`
+    .then((rows) => {
+      if (!rows[0]) throw new Error("Usuário fictício não encontrado.");
+      return rows[0].id as string;
+    })
+    .finally(() => sql.end({ timeout: 2 }));
+}
+
+export type SeededProfessionals = {
+  /** Serviço de fisioterapia (do catálogo etiquetado). */
+  physioService: string;
+  own: { name: string; phoneDigits: string; phoneShown: string; email: string; registration: string };
+  colleague: { name: string; phoneDigits: string; phoneShown: string; email: string; registration: string };
+};
+
+/** Cria um catálogo mínimo e dois profissionais: `own` (opcionalmente vinculado a um login) e um colega sem login. */
+export async function seedProfessionals(tag: string, options: { linkProfileId?: string } = {}): Promise<SeededProfessionals> {
+  const { serviceName: physioService } = await seedCatalog(tag);
+  const own = {
+    name: `${tag} Ana Propria`,
+    phoneDigits: "11911112222",
+    phoneShown: "(11) 91111-2222",
+    email: "ana.propria@teste.invalid",
+    registration: "CREFITO 11111",
+  };
+  const colleague = {
+    name: `${tag} Bruno Colega`,
+    phoneDigits: "11933334444",
+    phoneShown: "(11) 93333-4444",
+    email: "bruno.colega@teste.invalid",
+    registration: "CRO 22222",
+  };
+  const sql = connect();
+  try {
+    await sql.begin(async (tx) => {
+      const [dental] = await tx`insert into public.services (name, specialty, duration_minutes)
+        values (${`${tag} Limpeza`}, 'dentistry', 40) returning id`;
+      const [physio] = await tx`select id from public.services where name = ${physioService}`;
+      const [a] = await tx`insert into public.professionals (full_name, specialty, registration, phone, email, profile_id)
+        values (${own.name}, 'physiotherapy', ${own.registration}, ${own.phoneDigits}, ${own.email}, ${options.linkProfileId ?? null})
+        returning id`;
+      const [b] = await tx`insert into public.professionals (full_name, specialty, registration, phone, email)
+        values (${colleague.name}, 'dentistry', ${colleague.registration}, ${colleague.phoneDigits}, ${colleague.email})
+        returning id`;
+      await tx`insert into public.professional_services (professional_id, service_id, specialty) values
+        (${a!.id}, ${physio!.id}, 'physiotherapy'), (${b!.id}, ${dental!.id}, 'dentistry')`;
+    });
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+  return { physioService, own, colleague };
+}
+
+/** Apaga os profissionais do teste (ligações primeiro). Chame ANTES de `deleteCatalog` e dos logins. */
+export async function deleteProfessionals(tag: string): Promise<void> {
+  if (!/^\[e2e-cat [0-9a-f]{8}\]$/.test(tag)) throw new Error("Recusado: etiqueta de e2e inválida.");
+  const sql = connect();
+  try {
+    await sql.begin(async (tx) => {
+      const like = `${tag}%`;
+      await tx`delete from public.professional_services where professional_id in
+        (select id from public.professionals where full_name like ${like})`;
+      await tx`delete from public.professionals where full_name like ${like}`;
+    });
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+/** Estado REAL gravado dos profissionais do teste. */
+export async function professionalsState(tag: string): Promise<
+  {
+    name: string;
+    specialty: string;
+    registration: string | null;
+    phone: string | null;
+    email: string | null;
+    active: boolean;
+    loginName: string | null;
+    services: string[];
+  }[]
+> {
+  const sql = connect();
+  try {
+    const rows = await sql`
+      select p.full_name as name, p.specialty, p.registration, p.phone, p.email, p.active,
+        (select pr.full_name from public.profiles pr where pr.id = p.profile_id) as "loginName",
+        coalesce((select array_agg(s.name order by s.name) from public.professional_services ps
+          join public.services s on s.id = ps.service_id where ps.professional_id = p.id), '{}') as services
+      from public.professionals p where p.full_name like ${`${tag}%`} and p.deleted_at is null order by p.full_name`;
+    return rows as unknown as Awaited<ReturnType<typeof professionalsState>>;
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}

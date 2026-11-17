@@ -15,11 +15,11 @@ export const DURATION_MAX = 480;
 /** R$ 100.000,00 por atendimento: teto de sanidade (evita erro de digitação, não regra de negócio). */
 export const PRICE_MAX_CENTS = 10_000_000;
 
-const ID_MESSAGE = "Registro inválido.";
+export const ID_MESSAGE = "Registro inválido.";
 
 // NFC: "ã" digitado e "ã" colado decomposto (a + til) são o mesmo nome para o usuário, mas
 // seriam textos diferentes para o índice único do banco.
-const name = z
+export const nameSchema = z
   .string()
   .normalize("NFC")
   .trim()
@@ -34,7 +34,7 @@ const name = z
 export const serviceInputSchema = z.object({
   /** Só na edição. */
   id: z.guid({ error: ID_MESSAGE }).optional(),
-  name,
+  name: nameSchema,
   specialty: z.enum(SPECIALTIES, { error: "Escolha a especialidade." }),
   durationMinutes: z
     .string()
@@ -54,7 +54,7 @@ export type ServiceInput = z.infer<typeof serviceInputSchema>;
 export const insuranceInputSchema = z.object({
   /** Só na edição. */
   id: z.guid({ error: ID_MESSAGE }).optional(),
-  name,
+  name: nameSchema,
 });
 
 export type InsuranceInput = z.infer<typeof insuranceInputSchema>;

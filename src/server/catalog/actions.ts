@@ -46,6 +46,8 @@ const MESSAGES = {
   generic: "Não foi possível concluir. Tente novamente.",
   notFound: "Registro não encontrado. Atualize a página e tente de novo.",
   denied: "Não foi possível salvar. Atualize a página e tente de novo.",
+  deniedServiceEdit:
+    "Não foi possível salvar. Se este serviço já está ligado a profissionais, desligue-o deles antes de trocar a especialidade.",
   duplicateService: "Já existe um serviço com esse nome nessa especialidade.",
   duplicateInsurance: "Já existe um convênio com esse nome.",
   duplicatePrice: "Outra pessoa alterou este valor. Atualize a página e tente de novo.",
@@ -99,7 +101,15 @@ export async function saveService(
   const result = id
     ? await updateService(user, { ...fields, id })
     : await createService(user, fields);
-  if (!result.ok) return { error: failureMessage(result, MESSAGES.duplicateService), values };
+  if (!result.ok) {
+    // Ao EDITAR, a recusa do banco costuma ser a troca de especialidade de um serviço já ligado a
+    // profissionais (a chave estrangeira composta não deixa): diz o motivo provável.
+    const error =
+      id && result.reason === "denied"
+        ? MESSAGES.deniedServiceEdit
+        : failureMessage(result, MESSAGES.duplicateService);
+    return { error, values };
+  }
 
   revalidatePath("/servicos");
   return { success: true };

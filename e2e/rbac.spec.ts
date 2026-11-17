@@ -18,12 +18,12 @@ const ALL = [
 const EXPECTED: Record<Role, { visible: string[]; denied: string[] }> = {
   admin: { visible: ALL, denied: [] },
   reception: {
-    visible: ["Dashboard", "Agenda", "Pacientes", "Serviços", "Convênios", "Financeiro"],
-    denied: ["/profissionais", "/configuracoes"],
+    visible: ["Dashboard", "Agenda", "Pacientes", "Profissionais", "Serviços", "Convênios", "Financeiro"],
+    denied: ["/configuracoes"],
   },
   professional: {
-    visible: ["Dashboard", "Agenda", "Pacientes", "Serviços"],
-    denied: ["/profissionais", "/convenios", "/financeiro", "/configuracoes"],
+    visible: ["Dashboard", "Agenda", "Pacientes", "Profissionais", "Serviços"],
+    denied: ["/convenios", "/financeiro", "/configuracoes"],
   },
 };
 

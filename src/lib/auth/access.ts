@@ -10,7 +10,8 @@ const SCREEN_ACCESS: ReadonlyMap<string, readonly UserRole[]> = new Map([
   ["agenda", ["admin", "reception", "professional"]],
   ["pacientes", ["admin", "reception", "professional"]],
   ["financeiro", ["admin", "reception"]],
-  ["profissionais", ["admin"]],
+  // Profissionais: recepção vê todos; o profissional vê SÓ o próprio cadastro (a RLS devolve 1 linha).
+  ["profissionais", ["admin", "reception", "professional"]],
   // Serviços: o profissional vê nome/especialidade/duração, NUNCA valores (a tela e a RLS cuidam).
   ["servicos", ["admin", "reception", "professional"]],
   // Convênios e seus valores: sem acesso do profissional.

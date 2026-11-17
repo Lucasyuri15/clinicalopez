@@ -18,23 +18,23 @@ describe("canAccess (matriz de acesso por tela)", () => {
     for (const path of SECTIONS) expect(canAccess("admin", path), path).toBe(true);
   });
 
-  it("recepção acessa Dashboard, Agenda, Pacientes, Serviços, Convênios e Financeiro", () => {
-    for (const path of ["/dashboard", "/agenda", "/pacientes", "/servicos", "/convenios", "/financeiro"]) {
+  it("recepção acessa Dashboard, Agenda, Pacientes, Profissionais, Serviços, Convênios e Financeiro", () => {
+    for (const path of ["/dashboard", "/agenda", "/pacientes", "/profissionais", "/servicos", "/convenios", "/financeiro"]) {
       expect(canAccess("reception", path), path).toBe(true);
     }
   });
 
-  it("recepção não acessa Profissionais nem Configurações", () => {
-    for (const path of ["/profissionais", "/configuracoes"]) {
+  it("recepção não acessa Configurações", () => {
+    for (const path of ["/configuracoes"]) {
       expect(canAccess("reception", path), path).toBe(false);
     }
   });
 
-  it("profissional acessa só Dashboard, Agenda, Pacientes e Serviços (sem valores)", () => {
-    for (const path of ["/dashboard", "/agenda", "/pacientes", "/servicos"]) {
+  it("profissional acessa Dashboard, Agenda, Pacientes, Profissionais (só o próprio cadastro) e Serviços (sem valores)", () => {
+    for (const path of ["/dashboard", "/agenda", "/pacientes", "/profissionais", "/servicos"]) {
       expect(canAccess("professional", path), path).toBe(true);
     }
-    for (const path of ["/profissionais", "/convenios", "/financeiro", "/configuracoes"]) {
+    for (const path of ["/convenios", "/financeiro", "/configuracoes"]) {
       expect(canAccess("professional", path), path).toBe(false);
     }
   });
@@ -70,7 +70,7 @@ describe("canAccess (matriz de acesso por tela)", () => {
 describe("visibleNavItems", () => {
   const items = [
     { href: "/dashboard", label: "Dashboard" },
-    { href: "/profissionais", label: "Profissionais" },
+    { href: "/configuracoes", label: "Configurações" },
     { href: "/financeiro", label: "Financeiro" },
   ];
 
