@@ -43,6 +43,34 @@
       "when": 1793903148686,
       "tag": "0005_login_rate_limit",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794931090069,
+      "tag": "0006_catalog",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794931095723,
+      "tag": "0007_catalog_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794932466745,
+      "tag": "0008_catalog_name_checks",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794932467032,
+      "tag": "0009_catalog_price_parents",
+      "breakpoints": true
     }
   ]
 }
