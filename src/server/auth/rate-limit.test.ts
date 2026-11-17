@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   counts: null as unknown,
   beginError: null as Error | null,
   releaseError: null as Error | null,
+  envError: null as Error | null,
 }));
 const attempts = vi.hoisted(() => ({
   beginAttempt: vi.fn(),
@@ -18,7 +19,12 @@ const attempts = vi.hoisted(() => ({
 }));
 
 vi.mock("next/headers", () => ({ headers: async () => new Headers(state.headers) }));
-vi.mock("@/server/env", () => ({ getServerEnv: () => ({ CLIENT_IP_HEADER: state.ipHeader }) }));
+vi.mock("@/server/env", () => ({
+  getServerEnv: () => {
+    if (state.envError) throw state.envError;
+    return { CLIENT_IP_HEADER: state.ipHeader };
+  },
+}));
 vi.mock("@/server/db/attempts", () => attempts);
 
 import { beginRateLimited } from "./rate-limit";
@@ -43,6 +49,7 @@ beforeEach(() => {
   state.counts = none;
   state.beginError = null;
   state.releaseError = null;
+  state.envError = null;
   attempts.beginAttempt.mockImplementation(async () => {
     if (state.beginError) throw state.beginError;
     return { attemptId: "42", counts: state.counts };
@@ -131,6 +138,13 @@ describe("beginRateLimited: decisão", () => {
 });
 
 describe("beginRateLimited: falha fechada e logs sem dados pessoais", () => {
+  it("se as variáveis de ambiente forem inválidas NÃO estoura: devolve 'unavailable' e nem toca o banco", async () => {
+    state.envError = new Error("NEXT_PUBLIC_SUPABASE_URL e DATABASE_URL são de projetos diferentes");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(beginRateLimited("login", EMAIL)).resolves.toEqual({ status: "unavailable" });
+    expect(attempts.beginAttempt).not.toHaveBeenCalled();
+  });
+
   it("se o banco falhar NÃO libera: devolve 'unavailable' (sem proteção não há login)", async () => {
     state.beginError = new Error("connection refused");
     vi.spyOn(console, "error").mockImplementation(() => {});

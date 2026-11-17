@@ -11,7 +11,7 @@ Branch: `feat/fase-1a3-endurecimento` (já criada, em dia com a origem). Fluxo: 
 | CSP | **Nonce** gerado no `proxy`, `script-src 'nonce-…' 'strict-dynamic'`, sem `unsafe-inline` em scripts; `img-src 'self' data: blob:` (QR do 2FA). Todas as rotas viram dinâmicas (sem shell estático). |
 | Contadores do limite | **Tabela no Postgres**, acesso só por funções SQL (usuário ainda não logado); sem serviço externo. |
 | Regra de bloqueio | **Por IP** (teto geral) **e por e-mail+IP** (teto menor), com **atraso crescente**. Sem bloqueio de conta (evita travar o admin de propósito). Contador global por e-mail só para alerta, sem bloquear. |
-| Inatividade | **30 min** (teto absoluto de 8 h do cookie continua). |
+| Inatividade | **30 min** (o cookie de 8 h é deslizante, não um teto absoluto: spec, T6 M1). |
 | Supabase prod | **Decidir depois**; passo manual pendente documentado. |
 
 Decisões técnicas sem alternativa real (a confirmar na revisão do plano): pool, variáveis Vercel, JWT 30 min no painel.
@@ -37,7 +37,7 @@ Resultado completo na spec. Com `cacheComponents` + `partialPrefetching` o nonce
 - **Ações**: `src/server/auth/actions.ts` — `login`, `verifyMfaLogin` e `verifyMfaEnroll` chamam `check` **antes** do Supabase, `record_failure` no erro, `reset` no sucesso. Bloqueado → mesma mensagem `rateLimited` existente (sem dizer se o e-mail existe).
 - Testes: unitários da política; ações com mock (bloqueia antes de chamar o Supabase, mensagem genérica, reset no sucesso); **teste de integração no banco dev** (`src/server/db/rate-limit.test.ts`, transação revertida, dados fictícios): escalonamento, janela, reset, IP A não bloqueia IP B, `authenticated` e `anon` **não** executam as funções nem leem a tabela.
 
-### T3 — Sessão: JWT curto e timeout de inatividade — FEITO (código); JWT é passo manual
+### T3 — Sessão: JWT curto e timeout de inatividade — FEITO (JWT 1800 s aplicado no dev)
 Como ficou (cookie `ls_activity` só no `proxy`, `signOut` local + limpeza própria dos cookies, Server Action sem 307, e2e que envelhece o cookie; o prefetch NÃO é tratado à parte: o Next remove os cabeçalhos dele antes do proxy): ver a spec, seção "T3". Abaixo, o plano original.
 - **Painel (passo manual do usuário)**: JWT expiry 1800 s (campo ainda não localizado; se não achar, o teto passa a ser a inatividade + cookie de 8 h). **NÃO apertar** Authentication → Rate Limits (login e MFA): corrigido após a revisão do T2, pois todo o tráfego do app sai por poucos IPs da Vercel e apertar aproxima o teto do balde compartilhado (ver a spec, achado #2).
 - `src/proxy.ts` + novo `src/lib/auth/inactivity.ts` (puro): cookie `HttpOnly`/`Secure` com a hora da última atividade, atualizado em navegações reais. Passou de 30 min → `signOut({ scope: "local" })`, apaga cookies e redireciona a `/login`. Reaproveitar `finalizeCookieOptions` (`src/lib/supabase/cookie-options.ts`).
@@ -57,7 +57,10 @@ Como ficou: ver a spec, seção "T5". Abaixo, o plano original.
 - e2e: chamar Server Action de 2FA com `aal1` fora do passo e ver o redirecionamento.
 - **Adiado (registrar)**: `getUser()` em operações sensíveis (#6) só faz sentido quando existirem operações sensíveis (prontuário/1B+); anotar na spec.
 
-### T6 — Documentação e fechamento
+### T6 — Revisão final e documentação — FEITO
+Revisão independente da 1A-3 inteira (sem crítico; 2 correções + 4 itens aceitos, ver a spec) e docs de fechamento.
+
+Planejado originalmente:
 Spec da 1A-3 (decisões acima + resultado do spike), atualizar `docs/STATUS.md` (próximo passo = 1B; `main` segue sem o app até existir produção) e `AGENTS.md` (Stack: CSP e limite de tentativas instalados; novas variáveis; regra "tabela só por função" no item de acesso a dados). Sem commit/push até o usuário pedir.
 
 ## Arquivos críticos

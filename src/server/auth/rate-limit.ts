@@ -75,23 +75,26 @@ export async function beginRateLimited(
   kind: AttemptKind,
   subject: string,
 ): Promise<AttemptGate> {
-  const ip = clientIpFrom(
-    await headers(),
-    getServerEnv().CLIENT_IP_HEADER ?? DEFAULT_CLIENT_IP_HEADER,
-  );
   const subjectHash = hashSubject(kind, subject);
-
-  // Em produção, sem IP todos dividem UM balde e quem errar a senha trava o login de todos.
-  // Na Vercel o `x-real-ip` sempre existe; faltar indica proxy/host com cabeçalho diferente.
-  if (ip === UNKNOWN_IP && process.env.NODE_ENV === "production" && !warnedUnknownIp) {
-    warnedUnknownIp = true;
-    console.warn(
-      "[auth] IP do cliente desconhecido: confira CLIENT_IP_HEADER (todos os acessos dividem um só contador)",
-    );
-  }
 
   let begun;
   try {
+    // Dentro do `try`: variáveis de ambiente inválidas (ex.: guarda de projeto) também viram
+    // "indisponível" (recusa com mensagem genérica), não uma exceção solta na Server Action.
+    const ip = clientIpFrom(
+      await headers(),
+      getServerEnv().CLIENT_IP_HEADER ?? DEFAULT_CLIENT_IP_HEADER,
+    );
+
+    // Em produção, sem IP todos dividem UM balde e quem errar a senha trava o login de todos.
+    // Na Vercel o `x-real-ip` sempre existe; faltar indica proxy/host com cabeçalho diferente.
+    if (ip === UNKNOWN_IP && process.env.NODE_ENV === "production" && !warnedUnknownIp) {
+      warnedUnknownIp = true;
+      console.warn(
+        "[auth] IP do cliente desconhecido: confira CLIENT_IP_HEADER (todos os acessos dividem um só contador)",
+      );
+    }
+
     begun = await beginAttempt({ kind, ip, subjectHash, windowS: RATE_LIMIT.windowS });
   } catch (error) {
     // Só o SQLSTATE (lock_timeout 55P03, statement_timeout 57014, conexão 08xxx…), nunca a mensagem.
