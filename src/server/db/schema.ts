@@ -283,3 +283,71 @@ export const professionalServices = pgTable(
     index("professional_services_service_idx").on(table.serviceId),
   ],
 ).enableRLS();
+
+/**
+ * Grade semanal de atendimento (1B-2b): uma linha por FAIXA (`weekday` 0 = domingo a 6;
+ * `start_minute`/`end_minute` em minutos desde a meia-noite, de 5 em 5, faixa meio-aberta
+ * `[início, fim)`). O intervalo de almoço é o vão entre duas faixas do mesmo dia. A exclusão
+ * `professional_work_hours_no_overlap` (btree_gist, na migração SQL: o drizzle-kit não modela
+ * exclusão) impede faixas sobrepostas do mesmo profissional no mesmo dia; faixas que só
+ * encostam valem. Editar a semana = apagar e recriar as faixas numa transação (só o admin).
+ */
+export const professionalWorkHours = pgTable(
+  "professional_work_hours",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    professionalId: uuid("professional_id")
+      .notNull()
+      .references(() => professionals.id, { onDelete: "restrict" }),
+    weekday: smallint("weekday").notNull(),
+    startMinute: smallint("start_minute").notNull(),
+    endMinute: smallint("end_minute").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("professional_work_hours_weekday_check", sql`${table.weekday} between 0 and 6`),
+    check(
+      "professional_work_hours_range_check",
+      sql`${table.startMinute} between 0 and 1435 and ${table.endMinute} between 5 and 1440 and ${table.startMinute} < ${table.endMinute} and ${table.startMinute} % 5 = 0 and ${table.endMinute} % 5 = 0`,
+    ),
+    index("professional_work_hours_professional_idx").on(table.professionalId, table.weekday, table.startMinute),
+  ],
+).enableRLS();
+
+/**
+ * Folgas e bloqueios (1B-2b): períodos em que o profissional NÃO atende, em UTC (as telas
+ * convertem de/para o horário de Brasília). Folga de dia inteiro = da meia-noite do primeiro dia
+ * à meia-noite depois do último; bloqueio parcial = horário dentro do período. Sobreposição
+ * entre folgas é permitida (vale a união). `reason` é texto livre visível à recepção e ao
+ * próprio profissional: a tela pede para NÃO registrar dado de saúde.
+ */
+export const professionalTimeOff = pgTable(
+  "professional_time_off",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    professionalId: uuid("professional_id")
+      .notNull()
+      .references(() => professionals.id, { onDelete: "restrict" }),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("professional_time_off_period_check", sql`${table.startsAt} < ${table.endsAt}`),
+    check(
+      "professional_time_off_max_period_check",
+      sql`${table.endsAt} - ${table.startsAt} <= interval '366 days'`,
+    ),
+    // Mesma faixa da validação do app (2000 a 2100): pega ano de dígitos trocados mesmo por fora do app.
+    check(
+      "professional_time_off_bounds_check",
+      sql`${table.startsAt} >= timestamptz '2000-01-01 00:00:00+00' and ${table.endsAt} < timestamptz '2101-01-02 00:00:00+00'`,
+    ),
+    check(
+      "professional_time_off_reason_check",
+      sql`${table.reason} is null or (char_length(${table.reason}) between 1 and 120 and ${table.reason} ~ '^\\S(.*\\S)?$')`,
+    ),
+    index("professional_time_off_professional_idx").on(table.professionalId, table.startsAt),
+  ],
+).enableRLS();
