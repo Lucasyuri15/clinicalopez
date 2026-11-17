@@ -12,6 +12,7 @@ const PAGES = [
   { label: "Pacientes", href: "/pacientes" },
   { label: "Profissionais", href: "/profissionais" },
   { label: "Serviços", href: "/servicos" },
+  { label: "Convênios", href: "/convenios" },
   { label: "Financeiro", href: "/financeiro" },
   { label: "Configurações", href: "/configuracoes" },
 ] as const;

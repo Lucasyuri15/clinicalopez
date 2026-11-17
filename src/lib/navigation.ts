@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   type LucideIcon,
   Settings,
+  ShieldCheck,
   Stethoscope,
   Users,
   Wallet,
@@ -22,6 +23,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/pacientes", label: "Pacientes", icon: Users },
   { href: "/profissionais", label: "Profissionais", icon: Stethoscope },
   { href: "/servicos", label: "Serviços", icon: ClipboardList },
+  { href: "/convenios", label: "Convênios", icon: ShieldCheck },
   { href: "/financeiro", label: "Financeiro", icon: Wallet },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];

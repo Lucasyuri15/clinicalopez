@@ -9,6 +9,7 @@ describe("canAccess (matriz de acesso por tela)", () => {
     "/pacientes",
     "/profissionais",
     "/servicos",
+    "/convenios",
     "/financeiro",
     "/configuracoes",
   ];
@@ -17,23 +18,23 @@ describe("canAccess (matriz de acesso por tela)", () => {
     for (const path of SECTIONS) expect(canAccess("admin", path), path).toBe(true);
   });
 
-  it("recepção acessa Dashboard, Agenda, Pacientes e Financeiro", () => {
-    for (const path of ["/dashboard", "/agenda", "/pacientes", "/financeiro"]) {
+  it("recepção acessa Dashboard, Agenda, Pacientes, Serviços, Convênios e Financeiro", () => {
+    for (const path of ["/dashboard", "/agenda", "/pacientes", "/servicos", "/convenios", "/financeiro"]) {
       expect(canAccess("reception", path), path).toBe(true);
     }
   });
 
-  it("recepção não acessa Profissionais, Serviços nem Configurações", () => {
-    for (const path of ["/profissionais", "/servicos", "/configuracoes"]) {
+  it("recepção não acessa Profissionais nem Configurações", () => {
+    for (const path of ["/profissionais", "/configuracoes"]) {
       expect(canAccess("reception", path), path).toBe(false);
     }
   });
 
-  it("profissional acessa só Dashboard, Agenda e Pacientes", () => {
-    for (const path of ["/dashboard", "/agenda", "/pacientes"]) {
+  it("profissional acessa só Dashboard, Agenda, Pacientes e Serviços (sem valores)", () => {
+    for (const path of ["/dashboard", "/agenda", "/pacientes", "/servicos"]) {
       expect(canAccess("professional", path), path).toBe(true);
     }
-    for (const path of ["/profissionais", "/servicos", "/financeiro", "/configuracoes"]) {
+    for (const path of ["/profissionais", "/convenios", "/financeiro", "/configuracoes"]) {
       expect(canAccess("professional", path), path).toBe(false);
     }
   });
