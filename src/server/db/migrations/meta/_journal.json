@@ -71,6 +71,34 @@
       "when": 1794932467032,
       "tag": "0009_catalog_price_parents",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794937715856,
+      "tag": "0010_professionals",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794937722970,
+      "tag": "0011_professionals_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794938246648,
+      "tag": "0012_professionals_removed_unlinked",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794938246913,
+      "tag": "0013_professionals_self_links",
+      "breakpoints": true
     }
   ]
 }

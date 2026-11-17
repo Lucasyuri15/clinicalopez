@@ -138,12 +138,18 @@ describe("requirePageAccess", () => {
     mocks.getClaims.mockResolvedValue(claimsOk());
     profile("reception");
     expect(await requirePageAccess("/financeiro")).toMatchObject({ role: "reception" });
-    expect(await redirectedTo(requirePageAccess("/profissionais"))).toBe(
-      "/dashboard?acesso=negado",
-    );
+    expect(await requirePageAccess("/profissionais")).toMatchObject({ role: "reception" });
     expect(await redirectedTo(requirePageAccess("/configuracoes"))).toBe(
       "/dashboard?acesso=negado",
     );
+  });
+
+  it("profissional entra em /profissionais (só o próprio cadastro) e em /servicos, mas não em /convenios", async () => {
+    mocks.getClaims.mockResolvedValue(claimsOk());
+    profile("professional");
+    expect(await requirePageAccess("/profissionais")).toMatchObject({ role: "professional" });
+    expect(await requirePageAccess("/servicos")).toMatchObject({ role: "professional" });
+    expect(await redirectedTo(requirePageAccess("/convenios"))).toBe("/dashboard?acesso=negado");
   });
 
   it("anônimo vai para /login antes de qualquer checagem de papel", async () => {

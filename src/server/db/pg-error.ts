@@ -12,3 +12,18 @@ export function pgErrorCode(error: unknown): string | undefined {
   }
   return undefined;
 }
+
+/**
+ * Nome da restrição que falhou (`constraint_name` do erro do Postgres), também dentro de
+ * `cause`. Serve para distinguir QUAL índice único foi violado (ex.: nome repetido ou login
+ * já vinculado), que têm o mesmo SQLSTATE 23505.
+ */
+export function pgConstraintName(error: unknown): string | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current && typeof current === "object"; depth++) {
+    const name = (current as { constraint_name?: unknown }).constraint_name;
+    if (typeof name === "string" && name !== "") return name;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+}

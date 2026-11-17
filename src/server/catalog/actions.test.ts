@@ -154,6 +154,24 @@ describe("saveService", () => {
   });
 });
 
+describe("saveService: trocar a especialidade de um serviço ligado a profissionais", () => {
+  it("edição recusada pelo banco explica o motivo provável, em vez da mensagem genérica", async () => {
+    mocks.updateService.mockResolvedValue({ ok: false, reason: "denied" });
+    const result = await saveService(undefined, serviceForm({ id: ID }));
+    expect(result?.error).toBe(
+      "Não foi possível salvar. Se este serviço já está ligado a profissionais, desligue-o deles antes de trocar a especialidade.",
+    );
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("criação recusada continua com a mensagem genérica", async () => {
+    mocks.createService.mockResolvedValue({ ok: false, reason: "denied" });
+    expect((await saveService(undefined, serviceForm()))?.error).toBe(
+      "Não foi possível salvar. Atualize a página e tente de novo.",
+    );
+  });
+});
+
 describe("saveInsurance", () => {
   it("cria e edita", async () => {
     expect(await saveInsurance(undefined, form({ name: " Plano  Ficticio " }))).toEqual({ success: true });

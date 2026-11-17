@@ -20,5 +20,9 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
+    // Os testes de integração falam com o Supabase dev (rede) e alguns de RLS rodam dezenas de
+    // consultas: 5 s (o padrão) ficava a poucos décimos do limite e falhava de vez em quando
+    // sem haver bug. Um teste realmente travado ainda falha, só mais tarde.
+    testTimeout: 30_000,
   },
 });
