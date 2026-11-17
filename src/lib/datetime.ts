@@ -46,3 +46,79 @@ export function formatDateTimeBR(input: Date | string): string {
   const date = toDate(input);
   return `${dateFormat.format(date)} ${timeFormat.format(date)}`;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Horário de parede de Brasília <-> UTC (usado nas folgas e bloqueios da grade de horários).
+// ---------------------------------------------------------------------------------------------
+const DATE_TEXT = /^(\d{4})-(\d{2})-(\d{2})$/;
+const WALL_TIME_TEXT = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/** Data de calendário "AAAA-MM-DD" que existe de verdade (rejeita 30/02, mês 13 etc.). */
+export function isRealDate(text: string): boolean {
+  const match = DATE_TEXT.exec(text);
+  if (!match) return false;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+/** Soma dias a uma data de calendário "AAAA-MM-DD" (sem fuso: é só aritmética de calendário). */
+export function addDaysToDate(text: string, days: number): string {
+  if (!isRealDate(text)) throw new RangeError("Data inválida (esperado AAAA-MM-DD).");
+  const [year, month, day] = text.split("-").map(Number) as [number, number, number];
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day + days);
+  if (date.getUTCFullYear() < 0 || date.getUTCFullYear() > 9999) {
+    throw new RangeError("A data resultante sai do intervalo de anos de 0000 a 9999.");
+  }
+  const pad = (value: number, size = 2) => String(value).padStart(size, "0");
+  return `${pad(date.getUTCFullYear(), 4)}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+}
+
+const wallClockFormat = new Intl.DateTimeFormat("en-US", {
+  timeZone: TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+/** O relógio de parede de Brasília em `utcMs`, escrito como se fosse UTC (para comparar e subtrair). */
+function wallClockMs(utcMs: number): number {
+  const part = (type: string) =>
+    Number(wallClockFormat.formatToParts(new Date(utcMs)).find((p) => p.type === type)?.value);
+  // `setUTCFullYear` (e não `Date.UTC`, que trata anos de 0 a 99 como 1900 a 1999).
+  const wall = new Date(0);
+  wall.setUTCFullYear(part("year"), part("month") - 1, part("day"));
+  wall.setUTCHours(part("hour"), part("minute"), part("second"), 0);
+  return wall.getTime();
+}
+
+/**
+ * Converte data e hora DIGITADAS em Brasília ("2026-12-24", "08:00") para o instante em UTC.
+ * Usa o fuso de verdade (`Intl`), não um deslocamento fixo: o Brasil já teve horário de verão
+ * (até fev/2019) e pode voltar a ter. Nos casos raros de transição: uma hora que NÃO existiu
+ * resolve para a frente; uma hora que existiu DUAS vezes resolve para a primeira.
+ * `time` é "HH:MM" de 00:00 a 23:59 (para o fim do dia use 00:00 do dia seguinte).
+ */
+export function zonedToUtc(date: string, time: string): Date {
+  const timeMatch = WALL_TIME_TEXT.exec(time);
+  if (!isRealDate(date) || !timeMatch) {
+    throw new RangeError("Data (AAAA-MM-DD) ou hora (HH:MM) inválida.");
+  }
+  const [year, month, day] = date.split("-").map(Number) as [number, number, number];
+  const wall = new Date(0);
+  wall.setUTCFullYear(year, month - 1, day);
+  wall.setUTCHours(Number(timeMatch[1]), Number(timeMatch[2]), 0, 0);
+  const wallMs = wall.getTime();
+
+  const first = wallMs - (wallClockMs(wallMs) - wallMs);
+  const second = wallMs - (wallClockMs(first) - first);
+  const candidates = [...new Set([first, second])].sort((a, b) => a - b);
+  const exact = candidates.find((candidate) => wallClockMs(candidate) === wallMs);
+  return new Date(exact ?? candidates[candidates.length - 1] ?? first);
+}

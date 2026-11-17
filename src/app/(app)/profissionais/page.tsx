@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { ActiveToggle } from "@/components/catalog/active-toggle";
 import { StatusBadge } from "@/components/catalog/status-badge";
 import { ProfessionalSheet } from "@/components/professionals/professional-sheet";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { specialtyLabel } from "@/lib/catalog/labels";
 import { formatPhone } from "@/lib/phone";
 import { formatRegistration } from "@/lib/professionals/labels";
+import { cn } from "@/lib/utils";
 import { requirePageAccess } from "@/server/auth/session";
 import { listServices } from "@/server/catalog/queries";
 import { setProfessionalActiveAction } from "@/server/professionals/actions";
@@ -79,6 +82,13 @@ export default async function ProfissionaisPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <StatusBadge active={professional.active} />
+                        <Link
+                          href={`/profissionais/${professional.id}/horarios`}
+                          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-10 md:h-7")}
+                          aria-label={`Ver horários de ${professional.fullName}`}
+                        >
+                          Horários
+                        </Link>
                         {canEdit ? (
                           <>
                             <ProfessionalSheet

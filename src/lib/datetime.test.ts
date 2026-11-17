@@ -1,5 +1,12 @@
 import { describe, expect, test } from "vitest";
-import { formatDateBR, formatDateTimeBR, formatTimeBR } from "./datetime";
+import {
+  addDaysToDate,
+  formatDateBR,
+  formatDateTimeBR,
+  formatTimeBR,
+  isRealDate,
+  zonedToUtc,
+} from "./datetime";
 
 // O Brasil não tem horário de verão desde 2019: America/Sao_Paulo = UTC-3.
 describe("datetime (America/Sao_Paulo)", () => {
@@ -50,5 +57,93 @@ describe("datetime (America/Sao_Paulo)", () => {
   test("rejeita datas inválidas", () => {
     expect(() => formatDateBR("não é data")).toThrow(RangeError);
     expect(() => formatTimeBR(new Date(Number.NaN))).toThrow(RangeError);
+  });
+});
+
+describe("isRealDate e addDaysToDate (datas de calendário, sem fuso)", () => {
+  test.each([
+    ["2026-12-24", true],
+    ["2028-02-29", true], // ano bissexto
+    ["2026-02-29", false],
+    ["2026-02-30", false],
+    ["2026-13-01", false],
+    ["2026-00-10", false],
+    ["2026-1-1", false],
+    ["26-01-01", false],
+    ["2026-01-01T00:00", false],
+    ["", false],
+  ])("isRealDate(%j) = %s", (text, expected) => {
+    expect(isRealDate(text)).toBe(expected);
+  });
+
+  test("soma dias respeitando fim de mês, de ano e ano bissexto", () => {
+    expect(addDaysToDate("2026-12-31", 1)).toBe("2027-01-01");
+    expect(addDaysToDate("2028-02-28", 1)).toBe("2028-02-29");
+    expect(addDaysToDate("2026-02-28", 1)).toBe("2026-03-01");
+    expect(addDaysToDate("2026-03-01", -1)).toBe("2026-02-28");
+    expect(addDaysToDate("2026-11-17", 0)).toBe("2026-11-17");
+    expect(addDaysToDate("2026-01-01", 365)).toBe("2027-01-01");
+  });
+
+  test("recusa data inexistente", () => {
+    expect(() => addDaysToDate("2026-02-30", 1)).toThrow(RangeError);
+  });
+
+  test("não devolve ano de 5 dígitos nem negativo (estoura em vez de gerar uma data inválida)", () => {
+    expect(() => addDaysToDate("9999-12-31", 1)).toThrow(RangeError);
+    expect(() => addDaysToDate("0000-01-01", -1)).toThrow(RangeError);
+    expect(addDaysToDate("9999-12-30", 1)).toBe("9999-12-31");
+  });
+});
+
+describe("zonedToUtc (horário de parede de Brasília para UTC)", () => {
+  test("hoje (UTC-3): 08:00 em Brasília é 11:00 UTC", () => {
+    expect(zonedToUtc("2026-12-24", "08:00").toISOString()).toBe("2026-12-24T11:00:00.000Z");
+    expect(zonedToUtc("2026-01-01", "00:00").toISOString()).toBe("2026-01-01T03:00:00.000Z");
+  });
+
+  test("a virada do dia local cai no dia seguinte em UTC", () => {
+    expect(zonedToUtc("2026-12-31", "22:00").toISOString()).toBe("2027-01-01T01:00:00.000Z");
+  });
+
+  test("não usa deslocamento fixo: em horário de verão antigo (UTC-2) o resultado muda", () => {
+    expect(zonedToUtc("2018-11-10", "08:00").toISOString()).toBe("2018-11-10T10:00:00.000Z");
+    expect(zonedToUtc("2018-12-25", "08:00").toISOString()).toBe("2018-12-25T10:00:00.000Z");
+    expect(zonedToUtc("2018-10-01", "08:00").toISOString()).toBe("2018-10-01T11:00:00.000Z"); // antes do verão
+  });
+
+  test("hora que NÃO existiu (início do horário de verão de 2018: 00:00 pulou para 01:00) resolve para a frente", () => {
+    expect(zonedToUtc("2018-11-04", "00:30").toISOString()).toBe("2018-11-04T03:30:00.000Z");
+  });
+
+  test("hora que existiu DUAS vezes (fim do verão em 2019-02-17) resolve para a primeira", () => {
+    expect(zonedToUtc("2019-02-16", "23:30").toISOString()).toBe("2019-02-17T01:30:00.000Z");
+  });
+
+  test("devolve a mesma hora de parede quando formatada de volta em Brasília", () => {
+    for (const [date, time] of [
+      ["2026-03-15", "12:45"],
+      ["2026-07-01", "23:55"],
+      ["2018-12-01", "09:10"],
+    ] as const) {
+      expect(formatDateTimeBR(zonedToUtc(date, time))).toBe(
+        `${date.slice(8)}/${date.slice(5, 7)}/${date.slice(0, 4)} ${time}`,
+      );
+    }
+  });
+
+  test("ano de dois dígitos (erro de digitação como 0026) não vira uma data de 1900", () => {
+    expect(zonedToUtc("0026-12-24", "08:00").getUTCFullYear()).toBe(26);
+  });
+
+  test.each([
+    ["2026-02-30", "08:00"],
+    ["2026-12-24", "8:00"],
+    ["2026-12-24", "25:00"],
+    ["2026-12-24", "24:00"], // 24:00 não é horário de parede: use 00:00 do dia seguinte
+    ["", "08:00"],
+    ["24/12/2026", "08:00"],
+  ])("recusa %j %j", (date, time) => {
+    expect(() => zonedToUtc(date, time)).toThrow(RangeError);
   });
 });
