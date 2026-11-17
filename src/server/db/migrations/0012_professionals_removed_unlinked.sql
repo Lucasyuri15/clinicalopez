@@ -1,0 +1,1 @@
+ALTER TABLE "professionals" ADD CONSTRAINT "professionals_removed_unlinked_check" CHECK ("professionals"."deleted_at" is null or "professionals"."profile_id" is null);

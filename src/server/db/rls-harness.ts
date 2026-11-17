@@ -48,6 +48,7 @@ export type RlsIds = {
   admin: string;
   reception: string;
   professional: string;
+  professional2: string; // segundo profissional (para provar que um não vê o outro)
   inactive: string; // recepção com perfil inativo
   deleted: string; // profissional removido (soft delete)
   stranger: string; // existe no Auth, mas não tem perfil
@@ -82,6 +83,7 @@ export function createRlsHarness() {
         admin: randomUUID(),
         reception: randomUUID(),
         professional: randomUUID(),
+        professional2: randomUUID(),
         inactive: randomUUID(),
         deleted: randomUUID(),
         stranger: randomUUID(),
@@ -97,6 +99,7 @@ export function createRlsHarness() {
             { id: ids.admin, fullName: "Admin Fictício", role: "admin" },
             { id: ids.reception, fullName: "Recepção Fictícia", role: "reception" },
             { id: ids.professional, fullName: "Profissional Fictício", role: "professional" },
+            { id: ids.professional2, fullName: "Profissional Dois Fictício", role: "professional" },
             { id: ids.inactive, fullName: "Inativo Fictício", role: "reception", active: false },
             {
               id: ids.deleted,

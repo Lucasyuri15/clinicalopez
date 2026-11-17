@@ -3,13 +3,16 @@ import {
   bigint,
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   pgEnum,
   pgTable,
+  primaryKey,
   smallint,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -46,7 +49,10 @@ export const profiles = pgTable("profiles", {
     .defaultNow()
     .$onUpdate(() => new Date()),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
-}).enableRLS();
+}, (table) => [
+  // Só para a FK composta de `professionals` (perfil vinculado precisa ter o papel `professional`).
+  unique("profiles_id_role_uq").on(table.id, table.role),
+]).enableRLS();
 
 /**
  * Tentativas de login/2FA para o limite próprio (ver `src/lib/auth/rate-limit-policy.ts`).
@@ -116,6 +122,8 @@ export const services = pgTable(
   (table) => [
     check("services_name_check", sql`char_length(${table.name}) between 1 and 120 and ${table.name} ~ '^\\S(.*\\S)?$'`),
     check("services_duration_check", sql`${table.durationMinutes} between 5 and 480`),
+    // Só para a FK composta de `professional_services` (serviço e profissional da mesma especialidade).
+    unique("services_id_specialty_uq").on(table.id, table.specialty),
     uniqueIndex("services_specialty_name_uq")
       .on(table.specialty, sql`lower(${table.name})`)
       .where(sql`${table.deletedAt} is null`),
@@ -175,5 +183,103 @@ export const servicePrices = pgTable(
       .on(table.serviceId, table.insuranceId)
       .where(sql`${table.insuranceId} is not null and ${table.deletedAt} is null`),
     index("service_prices_insurance_idx").on(table.insuranceId),
+  ],
+).enableRLS();
+
+/**
+ * Profissionais de saúde (1B-2a). Quem lê: admin (todos), recepção (não removidos) e o próprio
+ * profissional (só a linha cujo `profile_id` é o dele). Quem escreve: só admin. Sem DELETE
+ * (exclusão lógica). RLS e grants em migração SQL.
+ *
+ * O vínculo com o login (`profile_id`) é opcional e único. O banco garante que o perfil
+ * vinculado tem papel `professional` pela FK composta `(profile_id, link_role)` ->
+ * `profiles(id, role)`, com `link_role` fixo em `professional` (sem trigger). O conselho
+ * (CREFITO/CRO/CRP) é derivado da especialidade: não é guardado.
+ */
+export const professionals = pgTable(
+  "professionals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    fullName: text("full_name").notNull(),
+    specialty: specialty("specialty").notNull(),
+    /** Número do registro no conselho (texto livre; opcional). */
+    registration: text("registration"),
+    /** Só dígitos: DDD + número (10 ou 11). */
+    phone: text("phone"),
+    email: text("email"),
+    profileId: uuid("profile_id"),
+    linkRole: userRole("link_role").notNull().default("professional"),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => [
+    check(
+      "professionals_name_check",
+      sql`char_length(${table.fullName}) between 1 and 120 and ${table.fullName} ~ '^\\S(.*\\S)?$'`,
+    ),
+    check(
+      "professionals_registration_check",
+      sql`${table.registration} is null or (char_length(${table.registration}) between 3 and 30 and ${table.registration} ~ '^\\S(.*\\S)?$')`,
+    ),
+    check("professionals_phone_check", sql`${table.phone} is null or ${table.phone} ~ '^[0-9]{10,11}$'`),
+    check(
+      "professionals_email_check",
+      sql`${table.email} is null or (char_length(${table.email}) <= 254 and ${table.email} ~ '^[^\\s@]+@[^\\s@]+$')`,
+    ),
+    check("professionals_link_role_check", sql`${table.linkRole} = 'professional'`),
+    // Um profissional REMOVIDO não guarda o login: sem isso o perfil ficaria preso (a FK composta
+    // impediria mudar o papel dele) por um cadastro que ninguém mais vê. Remover = soltar o login.
+    check(
+      "professionals_removed_unlinked_check",
+      sql`${table.deletedAt} is null or ${table.profileId} is null`,
+    ),
+    foreignKey({
+      name: "professionals_profile_fk",
+      columns: [table.profileId, table.linkRole],
+      foreignColumns: [profiles.id, profiles.role],
+    }).onDelete("restrict"),
+    // Só para a FK composta de `professional_services`.
+    unique("professionals_id_specialty_uq").on(table.id, table.specialty),
+    uniqueIndex("professionals_profile_uq")
+      .on(table.profileId)
+      .where(sql`${table.profileId} is not null and ${table.deletedAt} is null`),
+    uniqueIndex("professionals_specialty_name_uq")
+      .on(table.specialty, sql`lower(${table.fullName})`)
+      .where(sql`${table.deletedAt} is null`),
+  ],
+).enableRLS();
+
+/**
+ * Serviços que cada profissional realiza. `specialty` repetida de propósito: as duas FKs
+ * compostas obrigam o profissional e o serviço a serem da MESMA especialidade (um
+ * fisioterapeuta não recebe serviço de odontologia, nem por chamada direta ao banco).
+ * Tabela de ligação (configuração, não registro clínico): o admin pode apagar linhas.
+ */
+export const professionalServices = pgTable(
+  "professional_services",
+  {
+    professionalId: uuid("professional_id").notNull(),
+    serviceId: uuid("service_id").notNull(),
+    specialty: specialty("specialty").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "professional_services_pk", columns: [table.professionalId, table.serviceId] }),
+    foreignKey({
+      name: "professional_services_professional_fk",
+      columns: [table.professionalId, table.specialty],
+      foreignColumns: [professionals.id, professionals.specialty],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "professional_services_service_fk",
+      columns: [table.serviceId, table.specialty],
+      foreignColumns: [services.id, services.specialty],
+    }).onDelete("restrict"),
+    index("professional_services_service_idx").on(table.serviceId),
   ],
 ).enableRLS();
