@@ -279,6 +279,10 @@ export async function deleteProfessionals(tag: string): Promise<void> {
   try {
     await sql.begin(async (tx) => {
       const like = `${tag}%`;
+      await tx`delete from public.professional_work_hours where professional_id in
+        (select id from public.professionals where full_name like ${like})`;
+      await tx`delete from public.professional_time_off where professional_id in
+        (select id from public.professionals where full_name like ${like})`;
       await tx`delete from public.professional_services where professional_id in
         (select id from public.professionals where full_name like ${like})`;
       await tx`delete from public.professionals where full_name like ${like}`;
@@ -310,6 +314,75 @@ export async function professionalsState(tag: string): Promise<
           join public.services s on s.id = ps.service_id where ps.professional_id = p.id), '{}') as services
       from public.professionals p where p.full_name like ${`${tag}%`} and p.deleted_at is null order by p.full_name`;
     return rows as unknown as Awaited<ReturnType<typeof professionalsState>>;
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+/** Id de um profissional fictício pelo nome (para abrir a tela de horários dele). */
+export async function professionalIdByName(name: string): Promise<string> {
+  if (!/^\[e2e-cat [0-9a-f]{8}\] /.test(name)) throw new Error("Recusado: nome de profissional de e2e inválido.");
+  const sql = connect();
+  try {
+    const [row] = await sql`select id from public.professionals where full_name = ${name} and deleted_at is null`;
+    if (!row) throw new Error("Profissional fictício não encontrado.");
+    return row.id as string;
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+export type SeededSchedule = {
+  /** Folga do profissional `own`, no texto exato que a tela mostra. */
+  ownOffLabel: string;
+  ownOffReason: string;
+  colleagueOffReason: string;
+};
+
+/**
+ * Grade e folgas dos dois profissionais criados por `seedProfessionals`. As folgas são relativas a
+ * HOJE em Brasília (10 e 20 dias à frente) para o teste não envelhecer: a tela só lista as futuras
+ * e as dos últimos 30 dias.
+ */
+export async function seedSchedule(seeded: SeededProfessionals): Promise<SeededSchedule> {
+  const ownOffReason = "Recesso da clínica";
+  const colleagueOffReason = "Compromisso do colega";
+  const sql = connect();
+  try {
+    return await sql.begin(async (tx) => {
+      const [own] = await tx`select id from public.professionals where full_name = ${seeded.own.name}`;
+      const [colleague] = await tx`select id from public.professionals where full_name = ${seeded.colleague.name}`;
+      await tx`insert into public.professional_work_hours (professional_id, weekday, start_minute, end_minute) values
+        (${own!.id}, 1, 480, 720), (${own!.id}, 1, 840, 1080), (${own!.id}, 6, 480, 720),
+        (${colleague!.id}, 2, 540, 780)`;
+      const brt = tx`(now() at time zone 'America/Sao_Paulo')::date`;
+      await tx`insert into public.professional_time_off (professional_id, starts_at, ends_at, reason) values
+        (${own!.id}, ((${brt} + 10)::timestamp at time zone 'America/Sao_Paulo'), ((${brt} + 11)::timestamp at time zone 'America/Sao_Paulo'), ${ownOffReason}),
+        (${colleague!.id}, ((${brt} + 20)::timestamp at time zone 'America/Sao_Paulo'), ((${brt} + 21)::timestamp at time zone 'America/Sao_Paulo'), ${colleagueOffReason})`;
+      const [label] = await tx`select to_char(${brt} + 10, 'DD/MM/YYYY') as day`;
+      return { ownOffLabel: `${label!.day} (dia inteiro)`, ownOffReason, colleagueOffReason };
+    });
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+/** Estado REAL gravado da grade e das folgas de um profissional do teste. */
+export async function scheduleState(name: string): Promise<{
+  hours: { weekday: number; start: number; end: number }[];
+  timeOff: { reason: string | null; startsAt: Date; endsAt: Date }[];
+}> {
+  const id = await professionalIdByName(name);
+  const sql = connect();
+  try {
+    const hours = await sql`select weekday, start_minute as start, end_minute as "end"
+      from public.professional_work_hours where professional_id = ${id} order by weekday, start_minute`;
+    const timeOff = await sql`select reason, starts_at as "startsAt", ends_at as "endsAt"
+      from public.professional_time_off where professional_id = ${id} order by starts_at`;
+    return {
+      hours: hours as unknown as { weekday: number; start: number; end: number }[],
+      timeOff: timeOff as unknown as { reason: string | null; startsAt: Date; endsAt: Date }[],
+    };
   } finally {
     await sql.end({ timeout: 2 });
   }

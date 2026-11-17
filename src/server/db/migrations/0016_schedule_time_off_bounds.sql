@@ -1,0 +1,1 @@
+ALTER TABLE "professional_time_off" ADD CONSTRAINT "professional_time_off_bounds_check" CHECK ("professional_time_off"."starts_at" >= timestamptz '2000-01-01 00:00:00+00' and "professional_time_off"."ends_at" < timestamptz '2101-01-02 00:00:00+00');

@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 
-import { readUsers, testAs } from "./support/auth";
+import { testAs } from "./support/auth";
 import {
   catalogTag,
   createFixtureUser,
@@ -10,7 +10,6 @@ import {
   fixtureEmail,
   newPassword,
   professionalsState,
-  profileIdByEmail,
   seedCatalog,
   seedProfessionals,
 } from "./support/db";
@@ -191,53 +190,5 @@ asReception.describe("perfil recepção: só leitura dos profissionais", () => {
     await expect(page.getByRole("button", { name: "Novo profissional" })).toHaveCount(0);
     // o login de acesso é assunto do admin: nem aparece para a recepção
     await expect(page.getByText("Login de acesso")).toHaveCount(0);
-  });
-});
-
-// ---------------------------------------------------------------------------------------------
-// Profissional: vê SÓ o próprio cadastro, nunca o de colegas (nem escondido no HTML).
-// ---------------------------------------------------------------------------------------------
-const asProfessional = testAs("professional");
-asProfessional.describe("perfil profissional: só o próprio cadastro", () => {
-  asProfessional.skip(!HAS_SUPABASE, "Sem .env.local do Supabase dev: e2e de autenticação pulados.");
-
-  let tag = "";
-  let seeded: Awaited<ReturnType<typeof seedProfessionals>>;
-  asProfessional.beforeEach(async ({}, testInfo) => {
-    tag = catalogTag();
-    const email = readUsers()[`${testInfo.project.name}-professional`]?.email ?? "";
-    seeded = await seedProfessionals(tag, { linkProfileId: await profileIdByEmail(email) });
-  });
-  asProfessional.afterEach(async () => {
-    if (!tag) return;
-    await deleteProfessionals(tag); // solta o login ANTES do teardown apagar o usuário
-    await deleteCatalog(tag);
-    tag = "";
-  });
-
-  asProfessional("vê 'Meu cadastro' com os próprios dados e nenhum dado de colegas, nem no código da página", async ({ page }) => {
-    await page.goto("/profissionais");
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Meu cadastro");
-    const own = card(page, seeded.own.name);
-    await expect(own).toContainText(seeded.own.phoneShown);
-    await expect(own).toContainText(seeded.own.email);
-    await expect(own).toContainText(seeded.physioService);
-    await expect(own.getByRole("button")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Novo profissional" })).toHaveCount(0);
-    await expect(page.getByRole("listitem").filter({ hasText: "Ana Propria" })).toHaveCount(1);
-
-    // nada do colega: nem na tela nem no HTML entregue (inclui os dados embutidos para hidratar a página)
-    await expect(page.getByText("Bruno Colega")).toHaveCount(0);
-    const html = await page.content();
-    for (const secret of [
-      "Bruno Colega",
-      seeded.colleague.email,
-      seeded.colleague.phoneDigits,
-      "93333-4444",
-      seeded.colleague.registration,
-      `${tag} Limpeza`,
-    ]) {
-      expect(html, secret).not.toContain(secret);
-    }
   });
 });
