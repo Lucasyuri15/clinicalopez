@@ -27,3 +27,15 @@ export function pgConstraintName(error: unknown): string | undefined {
   }
   return undefined;
 }
+
+/**
+ * Erro NOVO e limpo para relançar uma falha inesperada do banco (conexão, timeout, deadlock) em
+ * código que manipula DADO PESSOAL: o erro do Drizzle traz a consulta e os PARÂMETROS na mensagem
+ * (`Failed query: ... params: ...`), e o Next o registra no log do servidor. Fica só o SQLSTATE.
+ */
+export function withoutQueryDetails(error: unknown): Error {
+  const code = pgErrorCode(error);
+  // Erro comum (sem consulta embutida, sem SQLSTATE) fica como está: é bug a depurar, com a pilha.
+  if (error instanceof Error && code === undefined && !error.message.startsWith("Failed query")) return error;
+  return new Error(code ? `Falha inesperada no banco (SQLSTATE ${code}).` : "Falha inesperada no banco.");
+}

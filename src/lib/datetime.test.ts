@@ -5,8 +5,22 @@ import {
   formatDateTimeBR,
   formatTimeBR,
   isRealDate,
+  todayBR,
   zonedToUtc,
 } from "./datetime";
+
+describe("todayBR (data de hoje em Brasília, AAAA-MM-DD)", () => {
+  test("usa o fuso de Brasília, não o UTC", () => {
+    // 02:00 UTC de 18/11 ainda é 23:00 de 17/11 em Brasília
+    expect(todayBR(new Date("2026-11-18T02:00:00Z"))).toBe("2026-11-17");
+    expect(todayBR(new Date("2026-11-18T03:00:00Z"))).toBe("2026-11-18");
+    expect(todayBR(new Date("2026-11-18T14:00:00Z"))).toBe("2026-11-18");
+  });
+
+  test("completa mês e dia com zero", () => {
+    expect(todayBR(new Date("2026-01-05T12:00:00Z"))).toBe("2026-01-05");
+  });
+});
 
 // O Brasil não tem horário de verão desde 2019: America/Sao_Paulo = UTC-3.
 describe("datetime (America/Sao_Paulo)", () => {

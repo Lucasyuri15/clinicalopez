@@ -4,9 +4,12 @@ import { readUsers, testAs } from "./support/auth";
 import {
   catalogTag,
   deleteCatalog,
+  deletePatients,
   deleteProfessionals,
+  patientIdByName,
   professionalIdByName,
   profileIdByEmail,
+  seedPatients,
   seedProfessionals,
   seedSchedule,
 } from "./support/db";
@@ -32,14 +35,17 @@ asProfessional.describe("perfil profissional: só o próprio cadastro e a própr
   let tag = "";
   let seeded: Awaited<ReturnType<typeof seedProfessionals>>;
   let schedule: Awaited<ReturnType<typeof seedSchedule>>;
+  let patients: Awaited<ReturnType<typeof seedPatients>>;
   asProfessional.beforeEach(async ({}, testInfo) => {
     tag = catalogTag();
     const email = readUsers()[`${testInfo.project.name}-professional`]?.email ?? "";
     seeded = await seedProfessionals(tag, { linkProfileId: await profileIdByEmail(email) });
     schedule = await seedSchedule(seeded);
+    patients = await seedPatients(tag, seeded);
   });
   asProfessional.afterEach(async () => {
     if (!tag) return;
+    await deletePatients(tag); // os vínculos usam os profissionais
     await deleteProfessionals(tag); // solta o login ANTES do teardown apagar o usuário
     await deleteCatalog(tag);
     tag = "";
@@ -87,6 +93,66 @@ asProfessional.describe("perfil profissional: só o próprio cadastro e a própr
     const html = await page.content();
     for (const secret of [schedule.colleagueOffReason, "Bruno Colega", "09:00–13:00"]) {
       expect(html, secret).not.toContain(secret);
+    }
+  });
+
+  asProfessional("vê só os pacientes vinculados a ele, e nunca CPF, endereço nem observações (nem dos dele)", async ({ page }) => {
+    await page.goto("/pacientes");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Meus pacientes");
+    await expect(card(page, patients.own.name)).toHaveCount(1);
+    await expect(card(page, patients.ownForeign.name)).toHaveCount(1); // o segundo paciente dele (sem CPF)
+    await expect(page.getByText("Paciente Alheio")).toHaveCount(0);
+    await expect(page.getByText("Paciente Solto")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Novo paciente|Desativar|Ativar/ })).toHaveCount(0);
+
+    // nada reservado, nem na tela nem no HTML entregue (inclui os dados embutidos para hidratar a página)
+    const html = await page.content();
+    for (const secret of [
+      patients.other.name,
+      patients.loose.name,
+      ...patients.own.secrets, // TODO o reservado do paciente dele: CPF, endereço, convênio, responsável, observações
+      patients.ownForeign.reason,
+      patients.other.cpfDigits,
+      patients.other.street,
+    ]) {
+      expect(html, secret).not.toContain(secret);
+    }
+
+    // a busca por CPF não serve de pergunta ("este CPF existe?"): nem o CPF do paciente dele casa
+    const none = page.getByText("Nenhum paciente encontrado para essa busca.");
+    await page.getByLabel("Buscar paciente").fill(patients.own.cpfShown);
+    await page.getByRole("button", { name: "Buscar" }).click();
+    await expect(none).toBeVisible();
+    // pelo nome acha (e some o aviso: prova que a resposta chegou); o CPF do responsável também não casa
+    await page.getByLabel("Buscar paciente").fill("Paciente Proprio");
+    await page.getByRole("button", { name: "Buscar" }).click();
+    await expect(none).toBeHidden();
+    await expect(card(page, patients.own.name)).toHaveCount(1);
+    expect(page.url()).not.toContain("q=");
+  });
+
+  asProfessional("abre o paciente dele (só o básico) e o de outro vira 'não encontrado' sem vazar nada", async ({ page }) => {
+    await page.goto("/pacientes");
+    await card(page, patients.own.name).getByRole("link", { name: `Abrir cadastro de ${patients.own.name}` }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(patients.own.name);
+    await expect(page.getByText(patients.own.phoneShown)).toBeVisible();
+    await expect(page.getByRole("button", { name: /Editar|Remover|Desativar|Confirmar/ })).toHaveCount(0);
+    await expect(page.getByText("Documento e convênio")).toHaveCount(0);
+    await expect(page.getByText("Observações administrativas")).toHaveCount(0);
+    const own = await page.content();
+    for (const secret of [...patients.own.secrets, patients.ownForeign.reason]) {
+      expect(own, secret).not.toContain(secret);
+    }
+
+    // paciente de outro profissional e paciente sem vínculo: a RLS não devolve a linha
+    for (const other of [patients.other.name, patients.loose.name]) {
+      const id = await patientIdByName(other);
+      await page.goto(`/pacientes/${id}`);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Não encontrado");
+      const html = await page.content();
+      for (const secret of [other, patients.other.cpfDigits, patients.other.street, patients.other.notes]) {
+        expect(html, secret).not.toContain(secret);
+      }
     }
   });
 });
