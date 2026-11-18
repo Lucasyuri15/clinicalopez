@@ -1,8 +1,10 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   check,
+  date,
   foreignKey,
   index,
   integer,
@@ -349,5 +351,147 @@ export const professionalTimeOff = pgTable(
       sql`${table.reason} is null or (char_length(${table.reason}) between 1 and 120 and ${table.reason} ~ '^\\S(.*\\S)?$')`,
     ),
     index("professional_time_off_professional_idx").on(table.professionalId, table.startsAt),
+  ],
+).enableRLS();
+
+/**
+ * Pacientes (1B-3a). DADO PESSOAL E DE SAÚDE (LGPD): a RLS é o que separa quem vê o quê.
+ * `patients` guarda só o CLÍNICO-BÁSICO (nome, nascimento, contato): é o que o profissional vê, e só
+ * dos pacientes VINCULADOS a ele (`patient_professionals`). CPF, endereço, convênio, responsável e
+ * observações ficam em `patient_private` (só admin e recepção): a RLS é por linha, então o dado
+ * que o profissional não pode ver é tabela própria, não coluna. Admin e recepção criam, editam e
+ * inativam (`active`); só o admin remove (soft delete por `deleted_at`). Sem DELETE físico.
+ */
+export const patients = pgTable(
+  "patients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    fullName: text("full_name").notNull(),
+    birthDate: date("birth_date", { mode: "string" }).notNull(),
+    /** Só dígitos: DDD + número (10 ou 11). */
+    phone: text("phone"),
+    email: text("email"),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => [
+    check(
+      "patients_name_check",
+      sql`char_length(${table.fullName}) between 1 and 120 and ${table.fullName} ~ '^\\S(.*\\S)?$' and ${table.fullName} !~ '[\\x01-\\x1f\\x7f]'`,
+    ),
+    // Hoje em UTC nunca está atrás de hoje em Brasília: uma data válida digitada hoje nunca é recusada.
+    check("patients_birth_date_check", sql`${table.birthDate} between date '1900-01-01' and current_date`),
+    check("patients_phone_check", sql`${table.phone} is null or ${table.phone} ~ '^[0-9]{10,11}$'`),
+    check(
+      "patients_email_check",
+      sql`${table.email} is null or (char_length(${table.email}) <= 254 and ${table.email} ~ '^[^\\s@]+@[^\\s@]+$')`,
+    ),
+    index("patients_name_idx").on(sql`lower(${table.fullName})`),
+  ],
+).enableRLS();
+
+/** Texto opcional: nulo ou de 1 a `max` caracteres, sem espaço nas pontas nem caractere de controle. */
+const optionalText = (column: AnyPgColumn, max: number) =>
+  sql`${column} is null or (char_length(${column}) between 1 and ${sql.raw(String(max))} and ${column} ~ '^\\S(.*\\S)?$' and ${column} !~ '[\\x01-\\x1f\\x7f]')`;
+
+/**
+ * Dados administrativos do paciente (1:1 com `patients`): SÓ admin e recepção. CPF OU motivo de
+ * não ter CPF (estrangeiro), nunca os dois nem nenhum. O CPF é único (inclusive de pacientes
+ * removidos: reativar o cadastro é o caminho; o dado fica retido pela LGPD). A validade dos
+ * dígitos do CPF é conferida no app (`src/lib/patients/cpf.ts`); o banco garante o formato.
+ */
+export const patientPrivate = pgTable(
+  "patient_private",
+  {
+    patientId: uuid("patient_id")
+      .primaryKey()
+      .references(() => patients.id, { onDelete: "restrict" }),
+    /** 11 dígitos. */
+    cpf: text("cpf"),
+    noCpfReason: text("no_cpf_reason"),
+    /** 8 dígitos. */
+    cep: text("cep"),
+    street: text("street"),
+    number: text("number"),
+    complement: text("complement"),
+    district: text("district"),
+    city: text("city"),
+    state: text("state"),
+    insuranceId: uuid("insurance_id").references(() => insurances.id, { onDelete: "restrict" }),
+    insuranceCard: text("insurance_card"),
+    guardianName: text("guardian_name"),
+    guardianRelationship: text("guardian_relationship"),
+    guardianPhone: text("guardian_phone"),
+    guardianCpf: text("guardian_cpf"),
+    /** Observação administrativa: a tela avisa para NÃO registrar dado clínico. */
+    adminNotes: text("admin_notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    check("patient_private_cpf_check", sql`${table.cpf} is null or ${table.cpf} ~ '^[0-9]{11}$'`),
+    check("patient_private_no_cpf_reason_check", optionalText(table.noCpfReason, 200)),
+    check(
+      "patient_private_cpf_or_reason_check",
+      sql`(${table.cpf} is not null) <> (${table.noCpfReason} is not null)`,
+    ),
+    check("patient_private_cep_check", sql`${table.cep} is null or ${table.cep} ~ '^[0-9]{8}$'`),
+    check("patient_private_street_check", optionalText(table.street, 120)),
+    check("patient_private_number_check", optionalText(table.number, 20)),
+    check("patient_private_complement_check", optionalText(table.complement, 60)),
+    check("patient_private_district_check", optionalText(table.district, 60)),
+    check("patient_private_city_check", optionalText(table.city, 60)),
+    check("patient_private_state_check", sql`${table.state} is null or ${table.state} ~ '^[A-Z]{2}$'`),
+    check("patient_private_card_check", optionalText(table.insuranceCard, 40)),
+    check(
+      "patient_private_card_insurance_check",
+      sql`${table.insuranceCard} is null or ${table.insuranceId} is not null`,
+    ),
+    check("patient_private_guardian_name_check", optionalText(table.guardianName, 120)),
+    check("patient_private_guardian_relationship_check", optionalText(table.guardianRelationship, 40)),
+    check(
+      "patient_private_guardian_phone_check",
+      sql`${table.guardianPhone} is null or ${table.guardianPhone} ~ '^[0-9]{10,11}$'`,
+    ),
+    check(
+      "patient_private_guardian_cpf_check",
+      sql`${table.guardianCpf} is null or ${table.guardianCpf} ~ '^[0-9]{11}$'`,
+    ),
+    check(
+      "patient_private_admin_notes_check",
+      sql`${table.adminNotes} is null or (char_length(${table.adminNotes}) between 1 and 1000 and ${table.adminNotes} ~ '^\\S(.*\\S)?$' and ${table.adminNotes} !~ '[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]')`,
+    ),
+    uniqueIndex("patient_private_cpf_uq").on(table.cpf),
+    index("patient_private_insurance_idx").on(table.insuranceId),
+  ],
+).enableRLS();
+
+/**
+ * Vínculo paciente-profissional: é o que define "os próprios pacientes" do profissional. Um
+ * paciente pode ter vários profissionais. Admin e recepção definem; a agenda (fase 2) poderá criar
+ * o vínculo no primeiro agendamento. Tabela de ligação (configuração): admin e recepção apagam linhas.
+ */
+export const patientProfessionals = pgTable(
+  "patient_professionals",
+  {
+    patientId: uuid("patient_id")
+      .notNull()
+      .references(() => patients.id, { onDelete: "restrict" }),
+    professionalId: uuid("professional_id")
+      .notNull()
+      .references(() => professionals.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "patient_professionals_pk", columns: [table.patientId, table.professionalId] }),
+    index("patient_professionals_professional_idx").on(table.professionalId),
   ],
 ).enableRLS();

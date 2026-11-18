@@ -90,11 +90,15 @@ export function createRlsHarness() {
       };
       try {
         await db.transaction(async (tx) => {
-          for (const [key, id] of Object.entries(ids)) {
-            await tx.execute(
-              sql`insert into auth.users (id, aud, role, email) values (${id}, 'authenticated', 'authenticated', ${`${key}-${id}@teste.invalid`})`,
-            );
-          }
+          // Um só INSERT: cada ida ao banco remoto custa ~150 ms e há dezenas de testes.
+          await tx.execute(
+            sql`insert into auth.users (id, aud, role, email) values ${sql.join(
+              Object.entries(ids).map(
+                ([key, id]) => sql`(${id}, 'authenticated', 'authenticated', ${`${key}-${id}@teste.invalid`})`,
+              ),
+              sql`, `,
+            )}`,
+          );
           await tx.insert(profiles).values([
             { id: ids.admin, fullName: "Admin Fictício", role: "admin" },
             { id: ids.reception, fullName: "Recepção Fictícia", role: "reception" },
