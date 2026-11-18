@@ -120,6 +120,34 @@
       "when": 1794941437201,
       "tag": "0016_schedule_time_off_bounds",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1795011218231,
+      "tag": "0017_patients",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1795011531691,
+      "tag": "0018_patients_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1795011767854,
+      "tag": "0019_patients_column_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1795012334108,
+      "tag": "0020_patients_hardening",
+      "breakpoints": true
     }
   ]
 }

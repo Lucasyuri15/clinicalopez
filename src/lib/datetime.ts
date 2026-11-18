@@ -53,6 +53,18 @@ export function formatDateTimeBR(input: Date | string): string {
 const DATE_TEXT = /^(\d{4})-(\d{2})-(\d{2})$/;
 const WALL_TIME_TEXT = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
+/** A data de hoje em Brasília, "AAAA-MM-DD" (não a do relógio UTC do servidor). */
+export function todayBR(now: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 /** Data de calendário "AAAA-MM-DD" que existe de verdade (rejeita 30/02, mês 13 etc.). */
 export function isRealDate(text: string): boolean {
   const match = DATE_TEXT.exec(text);

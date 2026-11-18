@@ -283,6 +283,8 @@ export async function deleteProfessionals(tag: string): Promise<void> {
         (select id from public.professionals where full_name like ${like})`;
       await tx`delete from public.professional_time_off where professional_id in
         (select id from public.professionals where full_name like ${like})`;
+      await tx`delete from public.patient_professionals where professional_id in
+        (select id from public.professionals where full_name like ${like})`;
       await tx`delete from public.professional_services where professional_id in
         (select id from public.professionals where full_name like ${like})`;
       await tx`delete from public.professionals where full_name like ${like}`;
@@ -383,6 +385,198 @@ export async function scheduleState(name: string): Promise<{
       hours: hours as unknown as { weekday: number; start: number; end: number }[],
       timeOff: timeOff as unknown as { reason: string | null; startsAt: Date; endsAt: Date }[],
     };
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Pacientes (1B-3a). Só dados FICTÍCIOS; nomes etiquetados com a mesma etiqueta do catálogo.
+// ---------------------------------------------------------------------------------------------
+
+/** CPF FICTÍCIO com dígitos verificadores corretos e aleatório (o banco exige CPF único). */
+export function fakeCpf(): string {
+  for (;;) {
+    const base = Array.from({ length: 9 }, () => Math.floor(Math.random() * 10));
+    if (new Set(base).size === 1) continue; // 111.111.111-xx não é CPF válido
+    const digit = (list: number[]) => {
+      const sum = list.reduce((acc, value, i) => acc + value * (list.length + 1 - i), 0);
+      const rest = (sum * 10) % 11;
+      return rest === 10 ? 0 : rest;
+    };
+    const d1 = digit(base);
+    const d2 = digit([...base, d1]);
+    return [...base, d1, d2].join("");
+  }
+}
+
+export const formatCpfDigits = (digits: string) =>
+  `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+
+export type SeededPatients = {
+  /**
+   * Paciente VINCULADO ao profissional `own` (de `seedProfessionals`), com TODOS os dados reservados
+   * preenchidos. `secrets` = textos únicos que o profissional nunca pode ver (nem no HTML).
+   */
+  own: {
+    name: string;
+    cpfDigits: string;
+    cpfShown: string;
+    street: string;
+    notes: string;
+    phoneShown: string;
+    secrets: string[];
+  };
+  /** Paciente vinculado ao profissional `own`, SEM CPF (motivo reservado). */
+  ownForeign: { name: string; reason: string };
+  /** Paciente vinculado só ao colega. */
+  other: { name: string; cpfDigits: string; cpfShown: string; street: string; notes: string };
+  /** Paciente sem nenhum vínculo. */
+  loose: { name: string };
+};
+
+/** Cria quatro pacientes: dois do profissional `own`, um só do colega e um sem vínculo. Chame depois de `seedProfessionals`. */
+export async function seedPatients(tag: string, seeded: { own: { name: string }; colleague: { name: string } }): Promise<SeededPatients> {
+  const own = {
+    name: `${tag} Paciente Proprio`,
+    cpfDigits: fakeCpf(),
+    street: "Rua Reservada Um",
+    notes: "Observacao administrativa reservada do paciente proprio",
+    phoneShown: "(11) 95555-6666",
+  };
+  const reserved = {
+    cep: "01310100",
+    complement: "Complemento Reservado",
+    district: "Bairro Reservado",
+    city: "Cidade Reservada",
+    card: "CARTEIRINHA-RESERVADA-99",
+    guardianName: "Responsavel Reservado Silva",
+    guardianRelationship: "Parentesco Reservado",
+    guardianCpf: fakeCpf(),
+    insuranceName: `${tag} Plano Reservado`,
+  };
+  const ownForeign = { name: `${tag} Paciente Estrangeiro`, reason: "Motivo reservado de nao ter CPF" };
+  const other = {
+    name: `${tag} Paciente Alheio`,
+    cpfDigits: fakeCpf(),
+    street: "Rua Reservada Dois",
+    notes: "Observacao administrativa reservada do paciente alheio",
+  };
+  const loose = { name: `${tag} Paciente Solto` };
+  const sql = connect();
+  try {
+    await sql.begin(async (tx) => {
+      const [insurance] = await tx`insert into public.insurances (name) values (${reserved.insuranceName}) returning id`;
+      const [a] = await tx`insert into public.patients (full_name, birth_date, phone, email)
+        values (${own.name}, '1985-03-02', '11955556666', 'paciente.proprio@teste.invalid') returning id`;
+      const [f] = await tx`insert into public.patients (full_name, birth_date, phone)
+        values (${ownForeign.name}, '1992-09-09', '11944445555') returning id`;
+      const [b] = await tx`insert into public.patients (full_name, birth_date, phone)
+        values (${other.name}, '1975-07-20', '11977778888') returning id`;
+      const [c] = await tx`insert into public.patients (full_name, birth_date, phone)
+        values (${loose.name}, '1960-01-15', '11999990000') returning id`;
+      await tx`insert into public.patient_private (patient_id, cpf, cep, street, complement, district, city, state,
+          insurance_id, insurance_card, guardian_name, guardian_relationship, guardian_phone, guardian_cpf, admin_notes)
+        values (${a!.id}, ${own.cpfDigits}, ${reserved.cep}, ${own.street}, ${reserved.complement}, ${reserved.district},
+          ${reserved.city}, 'SP', ${insurance!.id}, ${reserved.card}, ${reserved.guardianName},
+          ${reserved.guardianRelationship}, '11966665555', ${reserved.guardianCpf}, ${own.notes})`;
+      await tx`insert into public.patient_private (patient_id, no_cpf_reason) values (${f!.id}, ${ownForeign.reason})`;
+      await tx`insert into public.patient_private (patient_id, cpf, street, admin_notes) values
+        (${b!.id}, ${other.cpfDigits}, ${other.street}, ${other.notes}),
+        (${c!.id}, ${fakeCpf()}, 'Rua Solta', 'Obs solta')`;
+      const [pa] = await tx`select id from public.professionals where full_name = ${seeded.own.name}`;
+      const [pb] = await tx`select id from public.professionals where full_name = ${seeded.colleague.name}`;
+      await tx`insert into public.patient_professionals (patient_id, professional_id) values
+        (${a!.id}, ${pa!.id}), (${f!.id}, ${pa!.id}), (${b!.id}, ${pb!.id})`;
+    });
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+  return {
+    own: {
+      ...own,
+      cpfShown: formatCpfDigits(own.cpfDigits),
+      secrets: [
+        own.cpfDigits,
+        formatCpfDigits(own.cpfDigits),
+        own.street,
+        own.notes,
+        reserved.complement,
+        reserved.district,
+        reserved.city,
+        reserved.card,
+        reserved.guardianName,
+        reserved.guardianRelationship,
+        reserved.guardianCpf,
+        formatCpfDigits(reserved.guardianCpf),
+        reserved.insuranceName,
+        "01310-100",
+        "(11) 96666-5555",
+      ],
+    },
+    ownForeign,
+    other: { ...other, cpfShown: formatCpfDigits(other.cpfDigits) },
+    loose,
+  };
+}
+
+/** Apaga os pacientes do teste (vínculos e dados administrativos primeiro). Chame ANTES de `deleteProfessionals`/`deleteCatalog`. */
+export async function deletePatients(tag: string): Promise<void> {
+  if (!/^\[e2e-cat [0-9a-f]{8}\]$/.test(tag)) throw new Error("Recusado: etiqueta de e2e inválida.");
+  const sql = connect();
+  try {
+    await sql.begin(async (tx) => {
+      const like = `${tag}%`;
+      await tx`delete from public.patient_professionals where patient_id in
+        (select id from public.patients where full_name like ${like})`;
+      await tx`delete from public.patient_private where patient_id in
+        (select id from public.patients where full_name like ${like})`;
+      await tx`delete from public.patients where full_name like ${like}`;
+    });
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+/** Estado REAL gravado dos pacientes do teste (inclui removidos). */
+export async function patientsState(tag: string): Promise<
+  {
+    name: string;
+    birthDate: string;
+    phone: string | null;
+    active: boolean;
+    removed: boolean;
+    cpf: string | null;
+    noCpfReason: string | null;
+    street: string | null;
+    guardianName: string | null;
+    professionals: string[];
+  }[]
+> {
+  const sql = connect();
+  try {
+    const rows = await sql`
+      select p.full_name as name, p.birth_date::text as "birthDate", p.phone, p.active,
+        (p.deleted_at is not null) as removed, pp.cpf, pp.no_cpf_reason as "noCpfReason", pp.street,
+        pp.guardian_name as "guardianName",
+        coalesce((select array_agg(pr.full_name order by pr.full_name) from public.patient_professionals l
+          join public.professionals pr on pr.id = l.professional_id where l.patient_id = p.id), '{}') as professionals
+      from public.patients p left join public.patient_private pp on pp.patient_id = p.id
+      where p.full_name like ${`${tag}%`} order by p.full_name`;
+    return rows as unknown as Awaited<ReturnType<typeof patientsState>>;
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+/** Id de um paciente fictício pelo nome (para abrir a tela dele). */
+export async function patientIdByName(name: string): Promise<string> {
+  if (!/^\[e2e-cat [0-9a-f]{8}\] /.test(name)) throw new Error("Recusado: nome de paciente de e2e inválido.");
+  const sql = connect();
+  try {
+    const [row] = await sql`select id from public.patients where full_name = ${name}`;
+    if (!row) throw new Error("Paciente fictício não encontrado.");
+    return row.id as string;
   } finally {
     await sql.end({ timeout: 2 });
   }
