@@ -15,8 +15,16 @@ import { insurances, servicePrices, services, specialty } from "./schema";
  */
 describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
   const harness = createRlsHarness();
-  beforeAll(() => harness.connect());
-  afterAll(() => harness.close());
+  // Cenário montado UMA vez por arquivo; cada teste roda num savepoint desfeito (ver `rls-harness.ts`).
+  const shared = harness.shared((tx) => seed(tx));
+  beforeAll(async () => {
+    harness.connect();
+    await shared.open();
+  }, 60_000);
+  afterAll(async () => {
+    await shared.close();
+    await harness.close();
+  });
 
   type Seed = {
     sPhysio: string; // ativo, com valor particular e valor do Plano A
@@ -127,8 +135,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
 
   describe("services", () => {
     it("admin lê todos, inclusive inativo e removido", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(await seenServices(tx, s)).toEqual(sorted([s.sPhysio, s.sPsych, s.sRemoved]));
       });
@@ -137,8 +144,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
     it.each(["reception", "professional"] as const)(
       "%s lê os não removidos (inclusive inativo), e não o removido",
       async (who) => {
-        await harness.inTx(async ({ tx, ids, as }) => {
-          const s = await seed(tx);
+        await shared.run(async ({ tx, ids, as, seed: s }) => {
           await as(ids[who]);
           expect(await seenServices(tx, s)).toEqual(sorted([s.sPhysio, s.sPsych]));
         });
@@ -148,8 +154,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
     it.each(["stranger", "inactive", "deleted"] as const)(
       "usuário %s (sem perfil, inativo ou removido) não lê nada",
       async (who) => {
-        await harness.inTx(async ({ tx, ids, as }) => {
-          const s = await seed(tx);
+        await shared.run(async ({ tx, ids, as, seed: s }) => {
           await as(ids[who]);
           expect(await seenServices(tx, s)).toEqual([]);
         });
@@ -159,8 +164,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
     it.each(["admin", "reception", "professional"] as const)(
       "%s com JWT aal1 (só senha) não lê nada",
       async (who) => {
-        await harness.inTx(async ({ tx, ids, as }) => {
-          const s = await seed(tx);
+        await shared.run(async ({ tx, ids, as, seed: s }) => {
           await as(ids[who], "aal1");
           expect(await seenServices(tx, s)).toEqual([]);
         });
@@ -168,8 +172,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
     );
 
     it("admin cria e edita; recepção e profissional não criam (42501)", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         const novo = { name: "[teste] Avaliacao", specialty: "dentistry", durationMinutes: 40 } as const;
 
         await as(ids.admin);
@@ -192,8 +195,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
     });
 
     it("recepção e profissional não editam nem removem (0 linhas), e o dado não muda", async () => {
-      await harness.inTx(async ({ tx, ids, as, asOwner }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
         for (const who of ["reception", "professional"] as const) {
           await as(ids[who]);
           const changed = await tx
@@ -211,8 +213,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
     });
 
     it("admin faz exclusão lógica (deleted_at) e, depois, recepção deixa de ver o serviço", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         const done = await tx
           .update(services)
@@ -226,8 +227,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
     });
 
     it("admin com aal1 não cria nem edita (42501 / 0 linhas)", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin, "aal1");
         expect(
           await attempt(tx, (t) =>
@@ -244,8 +244,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
     });
 
     it("nem o admin apaga (sem DELETE): 42501", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(await attempt(tx, (t) => t.delete(services).where(eq(services.id, s.sPsych)))).toBe(
           "42501",
@@ -257,8 +256,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
       const base = { name: "[teste] Sessao nova", specialty: "physiotherapy", durationMinutes: 50 } as const;
 
       it("nome repetido na mesma especialidade (sem diferenciar maiúsculas) é recusado (23505)", async () => {
-        await harness.inTx(async ({ tx, ids, as }) => {
-          await seed(tx);
+        await shared.run(async ({ tx, ids, as }) => {
           await as(ids.admin);
           expect(
             await attempt(tx, (t) => t.insert(services).values({ ...base, name: "[TESTE] SESSAO DE FISIOTERAPIA" })),
@@ -267,8 +265,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
       });
 
       it("mesmo nome em outra especialidade vale; e depois da exclusão lógica o nome pode voltar", async () => {
-        await harness.inTx(async ({ tx, ids, as }) => {
-          const s = await seed(tx);
+        await shared.run(async ({ tx, ids, as, seed: s }) => {
           await as(ids.admin);
           expect(
             await attempt(tx, (t) =>
@@ -294,14 +291,14 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
         ["nome com tabulação na ponta", { name: "\tSessao" }],
         ["nome com 10 mil espaços no fim", { name: `a${" ".repeat(10_000)}` }],
       ])("recusa %s (23514)", async (_label, over) => {
-        await harness.inTx(async ({ tx, ids, as }) => {
+        await shared.run(async ({ tx, ids, as }) => {
           await as(ids.admin);
           expect(await attempt(tx, (t) => t.insert(services).values({ ...base, ...over }))).toBe("23514");
         });
       });
 
       it("aceita os limites exatos (duração 5 e 480, nome com 120 caracteres)", async () => {
-        await harness.inTx(async ({ tx, ids, as }) => {
+        await shared.run(async ({ tx, ids, as }) => {
           await as(ids.admin);
           for (const over of [
             { name: "Curto", durationMinutes: 5 },
@@ -314,7 +311,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
       });
 
       it("especialidade fora da lista é recusada (22P02)", async () => {
-        await harness.inTx(async ({ tx, ids, as }) => {
+        await shared.run(async ({ tx, ids, as }) => {
           await as(ids.admin);
           expect(
             await attempt(tx, (t) =>
@@ -330,48 +327,42 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
 
   describe("insurances", () => {
     it("admin lê todos, inclusive o removido", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(await seenInsurances(tx, s)).toEqual(sorted([s.plan, s.planRemoved]));
       });
     });
 
     it("recepção lê só o não removido", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.reception);
         expect(await seenInsurances(tx, s)).toEqual([s.plan]);
       });
     });
 
     it("profissional NÃO lê convênios", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.professional);
         expect(await seenInsurances(tx, s)).toEqual([]);
       });
     });
 
     it.each(["stranger", "inactive", "deleted"] as const)("usuário %s não lê nada", async (who) => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids[who]);
         expect(await seenInsurances(tx, s)).toEqual([]);
       });
     });
 
     it.each(["admin", "reception"] as const)("%s com aal1 não lê nada", async (who) => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids[who], "aal1");
         expect(await seenInsurances(tx, s)).toEqual([]);
       });
     });
 
     it("admin cria e edita; recepção e profissional não escrevem", async () => {
-      await harness.inTx(async ({ tx, ids, as, asOwner }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
         await as(ids.admin);
         expect(await attempt(tx, (t) => t.insert(insurances).values({ name: "[teste] Plano B Ficticio" }))).toBeUndefined();
         const edited = await tx
@@ -398,8 +389,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
     });
 
     it("admin com aal1 não escreve; nem o admin apaga", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin, "aal1");
         expect(await attempt(tx, (t) => t.insert(insurances).values({ name: "Z" }))).toBe("42501");
         await as(ids.admin);
@@ -408,8 +398,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
     });
 
     it("nome repetido (sem diferenciar maiúsculas) é recusado; vazio e grande demais também", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        await seed(tx);
+      await shared.run(async ({ tx, ids, as }) => {
         await as(ids.admin);
         expect(await attempt(tx, (t) => t.insert(insurances).values({ name: "[TESTE] PLANO A FICTICIO" }))).toBe("23505");
         expect(await attempt(tx, (t) => t.insert(insurances).values({ name: "  " }))).toBe("23514");
@@ -420,8 +409,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
     });
 
     it("o nome de um convênio removido pode ser reutilizado", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        await seed(tx);
+      await shared.run(async ({ tx, ids, as }) => {
         await as(ids.admin);
         expect(await attempt(tx, (t) => t.insert(insurances).values({ name: "[teste] Plano Velho Ficticio" }))).toBeUndefined();
       });
@@ -430,24 +418,21 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
 
   describe("service_prices", () => {
     it("admin lê todos, inclusive o removido", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(await seenPrices(tx, s)).toEqual(sorted([s.pParticular, s.pPlan, s.pRemoved]));
       });
     });
 
     it("recepção lê os não removidos", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.reception);
         expect(await seenPrices(tx, s)).toEqual(sorted([s.pParticular, s.pPlan]));
       });
     });
 
     it("profissional NÃO lê valores (nem por junção com serviços)", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.professional);
         expect(await seenPrices(tx, s)).toEqual([]);
         const joined = await tx
@@ -460,24 +445,21 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
     });
 
     it.each(["stranger", "inactive", "deleted"] as const)("usuário %s não lê nada", async (who) => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids[who]);
         expect(await seenPrices(tx, s)).toEqual([]);
       });
     });
 
     it.each(["admin", "reception"] as const)("%s com aal1 não lê nada", async (who) => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids[who], "aal1");
         expect(await seenPrices(tx, s)).toEqual([]);
       });
     });
 
     it("admin cria, edita e faz exclusão lógica; recepção e profissional não escrevem", async () => {
-      await harness.inTx(async ({ tx, ids, as, asOwner }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
         await as(ids.admin);
         // valor particular do serviço inativo (o removido já existe, então o novo é permitido)
         expect(
@@ -519,8 +501,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
     });
 
     it("admin com aal1 não escreve; nem o admin apaga", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin, "aal1");
         expect(
           await attempt(tx, (t) =>
@@ -535,8 +516,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
     });
 
     it("valores de serviço ou convênio REMOVIDOS somem para a recepção; o admin ainda os vê", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         const [pOk] = await tx
           .insert(servicePrices)
           .values({ serviceId: s.sPsych, insuranceId: s.plan, priceCents: 8000 })
@@ -570,8 +550,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
         ["valor negativo", -1],
         ["valor acima do teto", 10_000_001],
       ])("recusa %s (23514)", async (_label, priceCents) => {
-        await harness.inTx(async ({ tx, ids, as }) => {
-          const s = await seed(tx);
+        await shared.run(async ({ tx, ids, as, seed: s }) => {
           await as(ids.admin);
           expect(
             await attempt(tx, (t) =>
@@ -582,8 +561,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
       });
 
       it("aceita zero e o teto exato", async () => {
-        await harness.inTx(async ({ tx, ids, as }) => {
-          const s = await seed(tx);
+        await shared.run(async ({ tx, ids, as, seed: s }) => {
           await as(ids.admin);
           for (const priceCents of [0, 10_000_000]) {
             expect(
@@ -596,8 +574,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
       });
 
       it("um só valor particular e um só valor por convênio, por serviço (23505)", async () => {
-        await harness.inTx(async ({ tx, ids, as }) => {
-          const s = await seed(tx);
+        await shared.run(async ({ tx, ids, as, seed: s }) => {
           await as(ids.admin);
           expect(
             await attempt(tx, (t) =>
@@ -613,8 +590,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
       });
 
       it("o mesmo serviço pode ter valor em outro convênio; e depois da exclusão lógica o valor pode ser recriado", async () => {
-        await harness.inTx(async ({ tx, ids, as }) => {
-          const s = await seed(tx);
+        await shared.run(async ({ tx, ids, as, seed: s }) => {
           await as(ids.admin);
           const [other] = await tx
             .insert(insurances)
@@ -635,8 +611,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
       });
 
       it("admin não cria valor para serviço/convênio inexistente ou REMOVIDO (42501, política); a chave estrangeira segue valendo para o dono (23503)", async () => {
-        await harness.inTx(async ({ tx, ids, as, asOwner }) => {
-          const s = await seed(tx);
+        await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
           const missing = "00000000-0000-4000-8000-000000000000";
           const bad = [
             { serviceId: missing, insuranceId: null },
@@ -665,8 +640,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
       });
 
       it("não dá para apagar (nem como dono) um serviço ou convênio que tem valores (restrict)", async () => {
-        await harness.inTx(async ({ tx, asOwner }) => {
-          const s = await seed(tx);
+        await shared.run(async ({ tx, asOwner, seed: s }) => {
           await asOwner();
           expect(await attempt(tx, (t) => t.delete(services).where(eq(services.id, s.sPhysio)))).toBe("23503");
           expect(await attempt(tx, (t) => t.delete(insurances).where(eq(insurances.id, s.plan)))).toBe("23503");
@@ -681,8 +655,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
     it.each(["reception", "professional"] as const)(
       "%s: duplicata, valor inválido e chave estrangeira dão 42501, igual a uma linha limpa",
       async (who) => {
-        await harness.inTx(async ({ tx, ids, as }) => {
-          const s = await seed(tx);
+        await shared.run(async ({ tx, ids, as, seed: s }) => {
           await as(ids[who]);
           const cases: Array<(t: Tx) => Promise<unknown>> = [
             // serviços: nome repetido e duração inválida
@@ -724,8 +697,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
     it.each(["stranger", "inactive", "deleted"] as const)(
       "usuário %s (sem perfil, inativo ou removido) não escreve em nenhuma tabela (42501)",
       async (who) => {
-        await harness.inTx(async ({ tx, ids, as }) => {
-          const s = await seed(tx);
+        await shared.run(async ({ tx, ids, as, seed: s }) => {
           await as(ids[who]);
           expect(
             await attempt(tx, (t) =>
@@ -745,7 +717,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
     it.each(["reception", "professional"] as const)(
       "%s com JWT aal1 também não escreve (42501)",
       async (who) => {
-        await harness.inTx(async ({ tx, ids, as }) => {
+        await shared.run(async ({ tx, ids, as }) => {
           await as(ids[who], "aal1");
           expect(
             await attempt(tx, (t) =>
@@ -761,7 +733,7 @@ describe.skipIf(!hasDb)("RLS do catálogo (integração, Supabase dev)", () => {
     it.each(["services", "insurances", "service_prices"])(
       "%s: anon não tem nada; authenticated só SELECT/INSERT/UPDATE; RLS ligada",
       async (table) => {
-        await harness.inTx(async ({ tx, asOwner }) => {
+        await shared.run(async ({ tx, asOwner }) => {
           await asOwner();
           const [row] = await tx.execute<{
             anon: boolean;
