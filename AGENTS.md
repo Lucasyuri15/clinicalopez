@@ -17,7 +17,8 @@ Sistema interno de agendamentos e gestão para a clínica familiar López + Saú
 **Instalado (Fase 1B-1):** catálogo de **serviços, convênios e valores** (`services`, `insurances`, `service_prices`; telas `/servicos` e `/convenios`). O profissional vê serviços, **nunca valores nem convênios** (RLS por linha: por isso o valor é tabela própria, não coluna).
 **Instalado (Fase 1B-2a):** **profissionais** (`professionals`, `professional_services`; tela `/profissionais`): o profissional lê **só o próprio cadastro** (RLS por `profile_id = auth.uid()`); o banco garante por FK composta que o login vinculado é `professional` e que serviço e profissional são da mesma especialidade.
 **Instalado (Fase 1B-2b):** **grade de horários** (`professional_work_hours`, `professional_time_off`; tela `/profissionais/[id]/horarios`): faixas semanais sem sobreposição garantida pelo banco (exclusão `btree_gist`), folgas e bloqueios em UTC digitados em Brasília (`zonedToUtc` em `src/lib/datetime.ts`); só o admin altera; o profissional lê só a própria.
-**Planejado:** 1B-3 (pacientes) · deploy na **Vercel** · Storage (Fase 4).
+**Instalado (Fase 1B-3a):** **pacientes** (`patients` clínico-básico, `patient_private` só admin/recepção, `patient_professionals`; telas `/pacientes` e `/pacientes/[id]`): o profissional lê **só os pacientes vinculados a ele e nunca CPF, endereço, convênio, responsável nem observações** (RLS + função `app.is_own_patient`); CPF único e validado (`src/lib/patients/cpf.ts`); busca por **POST** (o termo nunca vai para a URL).
+**Planejado:** 1B-3b (consentimentos LGPD) · deploy na **Vercel** · Storage (Fase 4).
 
 > O Next.js desta versão tem mudanças de API: antes de escrever código de framework, consulte `node_modules/next/dist/docs/` (veja o bloco ao final deste arquivo). Se um comando abaixo ainda não existir, crie-o em vez de inventar alternativa e mantenha esta seção atualizada.
 
@@ -66,6 +67,7 @@ src/server/catalog/ queries.ts e mutations.ts (só `withUser`), actions.ts (Serv
 src/lib/professionals/ schemas.ts (Zod), labels.ts (conselho derivado da especialidade) · src/lib/phone.ts (telefone BR: só dígitos) (puros, testados)
 src/server/professionals/ queries.ts e mutations.ts (só `withUser`; gravação atômica do cadastro + serviços), actions.ts (todas `requireRole("admin")`)
 src/lib/schedule/  time.ts, week.ts, schemas.ts, format.ts (grade e folgas: puros, testados) · src/server/schedule/ queries.ts, mutations.ts (trava por profissional ao gravar a semana), actions.ts (todas `requireRole("admin")`)
+src/lib/patients/  cpf.ts, age.ts, labels.ts, schemas.ts (CPF, idade/maioridade, Zod do cadastro: puros, testados) · src/server/patients/ queries.ts, mutations.ts (só `withUser`; gravação atômica; erro inesperado sem consulta/parâmetros no log), actions.ts (admin e recepção; remover só admin; `searchPatients` por POST)
 src/lib/auth/       access.ts (matriz de acesso por tela), route-guard.ts, steps.ts, schemas.ts, qr.ts (puros, testados)
 src/lib/supabase/   env.ts (variáveis públicas), server.ts (cliente por requisição), proxy.ts (renovação de sessão)
 src/proxy.ts        checagem OTIMISTA de sessão em todas as rotas (só JWT, sem banco)
