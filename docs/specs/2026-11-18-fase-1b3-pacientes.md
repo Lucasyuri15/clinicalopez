@@ -51,4 +51,4 @@ Prontuário e anexos (fase 4); agenda e lista de espera (fase 2); WhatsApp (fase
 - **Auditoria de acesso ao cadastro** (o PRD exige log só para prontuário, fase 4).
 - `INSERT` ainda aceita `id`/`created_at` informados por admin e recepção (sem efeito de acesso); restringir por coluna se `created_at` virar trilha de auditoria.
 - A inserção em `patient_private` exige paciente não removido até para o admin (o `UPDATE` do admin vale em removido): assimetria intencional, documentada na migração.
-- Os testes de RLS demoram (~3 min o arquivo, uma ida ao banco remoto por passo).
+- ~~Os testes de RLS demoram (~3 min o arquivo).~~ Resolvido na branch `chore/otimiza-testes-rls`: cenário compartilhado por arquivo, e o arquivo de pacientes dividido em dois; a suíte completa foi de ~178 s para ~76 s.

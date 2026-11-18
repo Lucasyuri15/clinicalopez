@@ -63,6 +63,48 @@ export type RlsContext = {
   asOwner: () => Promise<void>;
 };
 
+/** Cria os usuários e perfis fictícios (um INSERT de cada: cada ida ao banco remoto custa ~150 ms). */
+async function createFixtureUsers(tx: Tx): Promise<RlsIds> {
+  const ids: RlsIds = {
+    admin: randomUUID(),
+    reception: randomUUID(),
+    professional: randomUUID(),
+    professional2: randomUUID(),
+    inactive: randomUUID(),
+    deleted: randomUUID(),
+    stranger: randomUUID(),
+  };
+  await tx.execute(
+    sql`insert into auth.users (id, aud, role, email) values ${sql.join(
+      Object.entries(ids).map(
+        ([key, id]) => sql`(${id}, 'authenticated', 'authenticated', ${`${key}-${id}@teste.invalid`})`,
+      ),
+      sql`, `,
+    )}`,
+  );
+  await tx.insert(profiles).values([
+    { id: ids.admin, fullName: "Admin Fictício", role: "admin" },
+    { id: ids.reception, fullName: "Recepção Fictícia", role: "reception" },
+    { id: ids.professional, fullName: "Profissional Fictício", role: "professional" },
+    { id: ids.professional2, fullName: "Profissional Dois Fictício", role: "professional" },
+    { id: ids.inactive, fullName: "Inativo Fictício", role: "reception", active: false },
+    { id: ids.deleted, fullName: "Removido Fictício", role: "professional", deletedAt: new Date() },
+  ]);
+  return ids;
+}
+
+/** `as` e `asOwner` de um contexto: o papel só dura até o fim da transação (ou do savepoint). */
+function contextFor(tx: Tx, ids: RlsIds): RlsContext {
+  const asOwner = async () => {
+    await tx.execute(sql`reset role`);
+  };
+  const as = async (userId: string, aal?: "aal1" | "aal2") => {
+    await asOwner();
+    await applyUserContext(tx, userId, aal);
+  };
+  return { tx, ids, as, asOwner };
+}
+
 export function createRlsHarness() {
   let owner: ReturnType<typeof postgres> | undefined;
   let db: PostgresJsDatabase<typeof schema> | undefined;
@@ -77,54 +119,83 @@ export function createRlsHarness() {
     async close() {
       await owner?.end({ timeout: 2 });
     },
+    /** Uma transação SÓ para o teste (usuários e fixtures novos), sempre revertida. */
     async inTx(fn: (context: RlsContext) => Promise<void>) {
       if (!db) throw new Error("Harness não conectado: chame connect() no beforeAll.");
-      const ids: RlsIds = {
-        admin: randomUUID(),
-        reception: randomUUID(),
-        professional: randomUUID(),
-        professional2: randomUUID(),
-        inactive: randomUUID(),
-        deleted: randomUUID(),
-        stranger: randomUUID(),
-      };
       try {
         await db.transaction(async (tx) => {
-          // Um só INSERT: cada ida ao banco remoto custa ~150 ms e há dezenas de testes.
-          await tx.execute(
-            sql`insert into auth.users (id, aud, role, email) values ${sql.join(
-              Object.entries(ids).map(
-                ([key, id]) => sql`(${id}, 'authenticated', 'authenticated', ${`${key}-${id}@teste.invalid`})`,
-              ),
-              sql`, `,
-            )}`,
-          );
-          await tx.insert(profiles).values([
-            { id: ids.admin, fullName: "Admin Fictício", role: "admin" },
-            { id: ids.reception, fullName: "Recepção Fictícia", role: "reception" },
-            { id: ids.professional, fullName: "Profissional Fictício", role: "professional" },
-            { id: ids.professional2, fullName: "Profissional Dois Fictício", role: "professional" },
-            { id: ids.inactive, fullName: "Inativo Fictício", role: "reception", active: false },
-            {
-              id: ids.deleted,
-              fullName: "Removido Fictício",
-              role: "professional",
-              deletedAt: new Date(),
-            },
-          ]);
-          const asOwner = async () => {
-            await tx.execute(sql`reset role`);
-          };
-          const as = async (userId: string, aal?: "aal1" | "aal2") => {
-            await asOwner();
-            await applyUserContext(tx, userId, aal);
-          };
-          await fn({ tx, ids, as, asOwner });
+          const ids = await createFixtureUsers(tx);
+          await fn(contextFor(tx, ids));
           throw new Rollback();
         });
       } catch (error) {
         if (!(error instanceof Rollback)) throw error;
       }
+    },
+    /**
+     * Cenário COMPARTILHADO: os usuários e o fixture (`seedFn`) são criados UMA vez, numa transação
+     * que fica aberta durante o arquivo de testes, e cada teste roda dentro de um SAVEPOINT sempre
+     * desfeito (`run`). Montar o cenário é o grosso do custo de cada teste (muitas idas ao banco
+     * remoto): assim se paga uma vez só. O isolamento é o mesmo: tudo o que o teste faz (inclusive
+     * `set local role` e as gravações do dono) é desfeito ao fim do savepoint, e o próximo teste
+     * começa de novo como dono, com o cenário intacto. Uso: `open()` no `beforeAll` (depois de
+     * `connect()`), `close()` no `afterAll`, `run(...)` nos testes.
+     */
+    shared<S>(seedFn: (tx: Tx, ids: RlsIds) => Promise<S>) {
+      let release: () => void = () => {};
+      let finished: Promise<void> = Promise.resolve();
+      let root: { tx: Tx; ids: RlsIds; seed: S } | undefined;
+      return {
+        async open() {
+          const database = db;
+          if (!database) throw new Error("Harness não conectado: chame connect() no beforeAll.");
+          const released = new Promise<void>((resolve) => (release = resolve));
+          let ready!: () => void;
+          let failed!: (error: unknown) => void;
+          const readyPromise = new Promise<void>((resolve, reject) => {
+            ready = resolve;
+            failed = reject;
+          });
+          finished = database
+            .transaction(async (tx) => {
+              try {
+                const ids = await createFixtureUsers(tx);
+                const seed = await seedFn(tx as unknown as Tx, ids);
+                root = { tx: tx as unknown as Tx, ids, seed };
+              } catch (error) {
+                failed(error); // o `beforeAll` falha com o erro verdadeiro
+                throw error;
+              }
+              ready();
+              await released;
+              throw new Rollback();
+            })
+            .then(
+              () => undefined,
+              () => undefined, // Rollback esperado, ou erro já entregue por `failed`
+            );
+          await readyPromise;
+        },
+        /** Desfaz TUDO (cenário e usuários) e libera a conexão. */
+        async close() {
+          release();
+          await finished;
+          root = undefined;
+        },
+        /** Roda o teste num savepoint que é SEMPRE desfeito. `seed` é o que `seedFn` devolveu. */
+        async run(fn: (context: RlsContext & { seed: S }) => Promise<void>) {
+          if (!root) throw new Error("Cenário compartilhado fechado: chame open() no beforeAll.");
+          const { tx, ids, seed } = root;
+          try {
+            await tx.transaction(async (savepoint) => {
+              await fn({ ...contextFor(savepoint as unknown as Tx, ids), seed });
+              throw new Rollback();
+            });
+          } catch (error) {
+            if (!(error instanceof Rollback)) throw error;
+          }
+        },
+      };
     },
   };
 }

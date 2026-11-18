@@ -15,8 +15,16 @@ import { professionalServices, professionals, profiles, services } from "./schem
  */
 describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", () => {
   const harness = createRlsHarness();
-  beforeAll(() => harness.connect());
-  afterAll(() => harness.close());
+  // Cenário montado UMA vez por arquivo; cada teste roda num savepoint desfeito (ver `rls-harness.ts`).
+  const shared = harness.shared((tx, ids) => seed(tx, ids));
+  beforeAll(async () => {
+    harness.connect();
+    await shared.open();
+  }, 60_000);
+  afterAll(async () => {
+    await shared.close();
+    await harness.close();
+  });
 
   type Seed = {
     pA: string; // fisioterapia, vinculado a ids.professional, com 1 serviço
@@ -107,24 +115,21 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
 
   describe("professionals: leitura", () => {
     it("admin lê todos, inclusive o removido", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(await seenProfessionals(tx, s)).toEqual(sorted([s.pA, s.pB, s.pOpen, s.pRemoved]));
       });
     });
 
     it("recepção lê todos os não removidos", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.reception);
         expect(await seenProfessionals(tx, s)).toEqual(sorted([s.pA, s.pB, s.pOpen]));
       });
     });
 
     it("profissional lê SÓ o próprio cadastro, nunca o de colegas", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.professional);
         expect(await seenProfessionals(tx, s)).toEqual([s.pA]);
         await as(ids.professional2);
@@ -133,8 +138,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("profissional sem cadastro vinculado, ou com o cadastro removido, não lê nada", async () => {
-      await harness.inTx(async ({ tx, ids, as, asOwner }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
         await asOwner();
         await tx.update(professionals).set({ profileId: null }).where(eq(professionals.id, s.pB));
         await tx.update(professionals).set({ deletedAt: new Date(), profileId: null }).where(eq(professionals.id, s.pA));
@@ -148,8 +152,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     it.each(["stranger", "inactive", "deleted"] as const)(
       "usuário %s (sem perfil, inativo ou removido) não lê nada",
       async (who) => {
-        await harness.inTx(async ({ tx, ids, as }) => {
-          const s = await seed(tx, ids);
+        await shared.run(async ({ tx, ids, as, seed: s }) => {
           await as(ids[who]);
           expect(await seenProfessionals(tx, s)).toEqual([]);
         });
@@ -157,16 +160,14 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     );
 
     it.each(["admin", "reception", "professional"] as const)("%s com JWT aal1 não lê nada", async (who) => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids[who], "aal1");
         expect(await seenProfessionals(tx, s)).toEqual([]);
       });
     });
 
     it("o contato do próprio profissional vem junto, o dos colegas não", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.professional);
         const rows = await tx
           .select({ id: professionals.id, phone: professionals.phone, email: professionals.email })
@@ -181,8 +182,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     const novo = { fullName: "[teste] Eva Psico", specialty: "psychology" } as const;
 
     it("admin cria, edita e faz exclusão lógica", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         const [created] = await tx.insert(professionals).values(novo).returning({ id: professionals.id });
         expect(created?.id).toBeTruthy();
@@ -206,8 +206,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     it.each(["reception", "professional"] as const)(
       "%s não cria (42501) nem edita (0 linhas); o dado não muda",
       async (who) => {
-        await harness.inTx(async ({ tx, ids, as, asOwner }) => {
-          const s = await seed(tx, ids);
+        await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
           await as(ids[who]);
           expect(await attempt(tx, (t) => t.insert(professionals).values(novo))).toBe("42501");
           const changed = await tx
@@ -225,16 +224,14 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     );
 
     it.each(["stranger", "inactive", "deleted"] as const)("usuário %s não escreve (42501)", async (who) => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as }) => {
         await as(ids[who]);
         expect(await attempt(tx, (t) => t.insert(professionals).values(novo))).toBe("42501");
       });
     });
 
     it("admin com aal1 não escreve", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin, "aal1");
         expect(await attempt(tx, (t) => t.insert(professionals).values(novo))).toBe("42501");
         const changed = await tx
@@ -247,8 +244,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("nem o admin apaga um profissional (sem DELETE): 42501", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(await attempt(tx, (t) => t.delete(professionals).where(eq(professionals.id, s.pOpen)))).toBe("42501");
       });
@@ -257,8 +253,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     it.each(["reception", "professional"] as const)(
       "%s recebe SEMPRE 42501 ao escrever, mesmo com duplicata, valor inválido ou vínculo escondido (nada vaza por erro de constraint)",
       async (who) => {
-        await harness.inTx(async ({ tx, ids, as }) => {
-          await seed(tx, ids);
+        await shared.run(async ({ tx, ids, as }) => {
           await as(ids[who]);
           const cases: Array<(t: Tx) => Promise<unknown>> = [
             (t) => t.insert(professionals).values({ fullName: "[teste] Ana Fisio", specialty: "physiotherapy" }), // duplicata
@@ -297,14 +292,14 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
       ["e-mail com espaço", { email: "ma ria@teste.invalid" }],
       ["e-mail com 255 caracteres", { email: `${"a".repeat(245)}@teste.com` }],
     ])("recusa %s (23514)", async (_label, over) => {
-      await harness.inTx(async ({ tx, ids, as }) => {
+      await shared.run(async ({ tx, ids, as }) => {
         await as(ids.admin);
         expect(await attempt(tx, (t) => t.insert(professionals).values({ ...base, ...over }))).toBe("23514");
       });
     });
 
     it("aceita os limites exatos e os campos opcionais vazios", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
+      await shared.run(async ({ tx, ids, as }) => {
         await as(ids.admin);
         for (const over of [
           { fullName: "n".repeat(120) },
@@ -319,8 +314,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("mesmo nome na mesma especialidade (sem diferenciar maiúsculas) é recusado (23505); em outra vale; removido libera o nome", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(
           await attempt(tx, (t) =>
@@ -342,8 +336,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("o login (perfil) só pode estar em UM profissional não removido; libera depois de remover", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(
           await attempt(tx, (t) => t.insert(professionals).values({ ...base, profileId: ids.professional })),
@@ -356,7 +349,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("só dá para vincular um perfil com papel 'professional' (FK composta): recepção, admin e inexistente dão 23503", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
+      await shared.run(async ({ tx, ids, as }) => {
         await as(ids.admin);
         for (const profileId of [ids.reception, ids.admin, "00000000-0000-4000-8000-000000000000"]) {
           expect(await attempt(tx, (t) => t.insert(professionals).values({ ...base, profileId }))).toBe("23503");
@@ -365,7 +358,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("link_role não pode ser trocado para fugir da regra (23514)", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
+      await shared.run(async ({ tx, ids, as }) => {
         await as(ids.admin);
         expect(
           await attempt(tx, (t) =>
@@ -376,8 +369,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("não dá para mudar o papel de um perfil que está vinculado a um profissional (23503), nem apagá-lo", async () => {
-      await harness.inTx(async ({ tx, ids, asOwner }) => {
-        await seed(tx, ids);
+      await shared.run(async ({ tx, ids, asOwner }) => {
         await asOwner();
         expect(
           await attempt(tx, (t) => t.update(profiles).set({ role: "reception" }).where(eq(profiles.id, ids.professional))),
@@ -387,8 +379,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("um profissional REMOVIDO não pode manter o login vinculado (23514): a remoção libera o perfil", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(
           await attempt(tx, (t) => t.update(professionals).set({ deletedAt: new Date() }).where(eq(professionals.id, s.pA))),
@@ -402,8 +393,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("com o login liberado, o papel do perfil pode mudar (a remoção não deixa o perfil preso)", async () => {
-      await harness.inTx(async ({ tx, ids, as, asOwner }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
         await as(ids.admin);
         await tx.update(professionals).set({ deletedAt: new Date(), profileId: null }).where(eq(professionals.id, s.pA));
         await asOwner();
@@ -414,8 +404,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("profissional que perde o perfil (desativado depois de vinculado) deixa de ler o próprio cadastro e as ligações", async () => {
-      await harness.inTx(async ({ tx, ids, as, asOwner }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
         await as(ids.professional);
         expect(await seenProfessionals(tx, s)).toEqual([s.pA]);
         await asOwner();
@@ -427,8 +416,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("desvincular e vincular de novo funciona", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         await tx.update(professionals).set({ profileId: null }).where(eq(professionals.id, s.pA));
         expect(
@@ -440,16 +428,14 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
 
   describe("professional_services", () => {
     it("admin lê todas as ligações", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(await seenLinks(tx, s)).toEqual(sorted([s.pA, s.pB]));
       });
     });
 
     it("recepção lê as ligações de profissionais e serviços não removidos", async () => {
-      await harness.inTx(async ({ tx, ids, as, asOwner }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
         await as(ids.reception);
         expect(await seenLinks(tx, s)).toEqual(sorted([s.pA, s.pB]));
         await asOwner();
@@ -464,8 +450,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("profissional lê SÓ as ligações do próprio cadastro", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.professional);
         expect(await seenLinks(tx, s)).toEqual([s.pA]);
         await as(ids.professional2);
@@ -474,8 +459,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("profissional não vê a ligação a um serviço REMOVIDO (igual à recepção)", async () => {
-      await harness.inTx(async ({ tx, ids, as, asOwner }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
         await asOwner();
         await tx.update(services).set({ deletedAt: new Date() }).where(eq(services.id, s.sPhysio));
         await as(ids.professional);
@@ -484,24 +468,21 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it.each(["stranger", "inactive", "deleted"] as const)("usuário %s não lê nada", async (who) => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids[who]);
         expect(await seenLinks(tx, s)).toEqual([]);
       });
     });
 
     it.each(["admin", "reception", "professional"] as const)("%s com aal1 não lê nada", async (who) => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids[who], "aal1");
         expect(await seenLinks(tx, s)).toEqual([]);
       });
     });
 
     it("admin liga e desliga serviços", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         // (insert direto, não `attempt`: ele desfaz o que fez, e o DELETE abaixo precisa da linha)
         await tx
@@ -519,8 +500,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     it.each(["reception", "professional"] as const)(
       "%s não liga (42501) nem desliga (0 linhas); nada muda",
       async (who) => {
-        await harness.inTx(async ({ tx, ids, as, asOwner }) => {
-          const s = await seed(tx, ids);
+        await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
           await as(ids[who]);
           expect(
             await attempt(tx, (t) =>
@@ -539,8 +519,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     );
 
     it("admin com aal1 não liga nem desliga", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin, "aal1");
         expect(
           await attempt(tx, (t) =>
@@ -556,8 +535,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("ninguém atualiza uma ligação (sem UPDATE)", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(
           await attempt(tx, (t) =>
@@ -568,8 +546,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("serviço de OUTRA especialidade é recusado pelo banco (23503), mesmo para o admin", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         // o serviço é de odontologia, o profissional é de fisioterapia (declarando qualquer das duas especialidades)
         for (const specialty of ["physiotherapy", "dentistry"] as const) {
@@ -583,8 +560,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("não liga a profissional ou serviço REMOVIDO nem inexistente (42501, política)", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         const missing = "00000000-0000-4000-8000-000000000000";
         const bad = [
@@ -600,8 +576,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("não liga o mesmo serviço duas vezes (23505)", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(
           await attempt(tx, (t) =>
@@ -612,8 +587,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("trocar a especialidade do profissional ou do serviço com ligações é recusado (23503)", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(
           await attempt(tx, (t) => t.update(professionals).set({ specialty: "psychology" }).where(eq(professionals.id, s.pA))),
@@ -625,8 +599,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("trocar a especialidade funciona depois de desligar os serviços (o que o app faz, na mesma transação)", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         await tx.delete(professionalServices).where(eq(professionalServices.professionalId, s.pA));
         expect(
@@ -636,8 +609,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
     });
 
     it("não dá para apagar (nem como dono) profissional ou serviço que tem ligações (restrict)", async () => {
-      await harness.inTx(async ({ tx, ids, asOwner }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, asOwner, seed: s }) => {
         await asOwner();
         expect(await attempt(tx, (t) => t.delete(professionals).where(eq(professionals.id, s.pA)))).toBe("23503");
         expect(await attempt(tx, (t) => t.delete(services).where(eq(services.id, s.sPhysio)))).toBe("23503");
@@ -650,7 +622,7 @@ describe.skipIf(!hasDb)("RLS dos profissionais (integração, Supabase dev)", ()
       ["professionals", { sel: true, ins: true, upd: true, del: false }],
       ["professional_services", { sel: true, ins: true, upd: false, del: true }],
     ])("%s: anon não tem nada; authenticated só o previsto; sem TRUNCATE/REFERENCES/TRIGGER; RLS ligada", async (table, expected) => {
-      await harness.inTx(async ({ tx, asOwner }) => {
+      await shared.run(async ({ tx, asOwner }) => {
         await asOwner();
         const [row] = await tx.execute<Record<string, boolean>>(sql`
           select

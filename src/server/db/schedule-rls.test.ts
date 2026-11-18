@@ -15,8 +15,16 @@ import { professionalTimeOff, professionalWorkHours, professionals, profiles } f
  */
 describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)", () => {
   const harness = createRlsHarness();
-  beforeAll(() => harness.connect());
-  afterAll(() => harness.close());
+  // Cenário montado UMA vez por arquivo; cada teste roda num savepoint desfeito (ver `rls-harness.ts`).
+  const shared = harness.shared((tx, ids) => seed(tx, ids));
+  beforeAll(async () => {
+    harness.connect();
+    await shared.open();
+  }, 60_000);
+  afterAll(async () => {
+    await shared.close();
+    await harness.close();
+  });
 
   const H = (hours: number, minutes = 0) => hours * 60 + minutes;
   const DAY = 24 * 60 * 60 * 1000;
@@ -101,8 +109,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
 
   describe("leitura", () => {
     it("admin lê tudo, inclusive de profissional removido", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(await seenHours(tx, s)).toEqual(sorted([s.hA1, s.hA2, s.hB, s.hRemoved]));
         expect(await seenOff(tx, s)).toEqual(sorted([s.oA, s.oB, s.oRemoved]));
@@ -110,8 +117,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     });
 
     it("recepção lê as de todos os profissionais NÃO removidos", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.reception);
         expect(await seenHours(tx, s)).toEqual(sorted([s.hA1, s.hA2, s.hB]));
         expect(await seenOff(tx, s)).toEqual(sorted([s.oA, s.oB]));
@@ -119,8 +125,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     });
 
     it("profissional lê SÓ a própria grade e as próprias folgas, nunca as de colegas", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.professional);
         expect(await seenHours(tx, s)).toEqual(sorted([s.hA1, s.hA2]));
         expect(await seenOff(tx, s)).toEqual([s.oA]);
@@ -131,8 +136,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     });
 
     it("profissional cujo cadastro foi removido, ou cujo login não está vinculado, não lê nada", async () => {
-      await harness.inTx(async ({ tx, ids, as, asOwner }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
         await asOwner();
         await tx.update(professionals).set({ deletedAt: new Date(), profileId: null }).where(eq(professionals.id, s.pA));
         await tx.update(professionals).set({ profileId: null }).where(eq(professionals.id, s.pB));
@@ -145,8 +149,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     });
 
     it("quando o profissional é removido, a recepção deixa de ver a grade e as folgas dele", async () => {
-      await harness.inTx(async ({ tx, ids, as, asOwner }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
         await asOwner();
         await tx.update(professionals).set({ deletedAt: new Date(), profileId: null }).where(eq(professionals.id, s.pB));
         await as(ids.reception);
@@ -158,8 +161,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     it.each(["stranger", "inactive", "deleted"] as const)(
       "usuário %s (sem perfil, inativo ou removido) não lê nada",
       async (who) => {
-        await harness.inTx(async ({ tx, ids, as }) => {
-          const s = await seed(tx, ids);
+        await shared.run(async ({ tx, ids, as, seed: s }) => {
           await as(ids[who]);
           expect(await seenHours(tx, s)).toEqual([]);
           expect(await seenOff(tx, s)).toEqual([]);
@@ -168,8 +170,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     );
 
     it("admin com perfil DESATIVADO ou REMOVIDO deixa de ler (o papel some, não só o 2FA)", async () => {
-      await harness.inTx(async ({ tx, ids, as, asOwner }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
         await as(ids.admin);
         expect(await seenHours(tx, s)).not.toEqual([]); // prova que o fixture existe e o admin lê
         await asOwner();
@@ -185,8 +186,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     });
 
     it("profissional VINCULADO cujo perfil foi desativado ou removido depois deixa de ler a própria grade", async () => {
-      await harness.inTx(async ({ tx, ids, as, asOwner }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
         await as(ids.professional);
         expect(await seenHours(tx, s)).toEqual(sorted([s.hA1, s.hA2]));
         await asOwner();
@@ -202,8 +202,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     });
 
     it.each(["admin", "reception", "professional"] as const)("%s com JWT aal1 não lê nada", async (who) => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids[who], "aal1");
         expect(await seenHours(tx, s)).toEqual([]);
         expect(await seenOff(tx, s)).toEqual([]);
@@ -227,8 +226,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     });
 
     it("admin cria e apaga faixas e folgas", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         const [h] = await tx.insert(professionalWorkHours).values(hour(s.pA)).returning({ id: professionalWorkHours.id });
         const [o] = await tx.insert(professionalTimeOff).values(off(s.pA)).returning({ id: professionalTimeOff.id });
@@ -243,8 +241,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     it.each(["reception", "professional"] as const)(
       "%s não cria (42501) nem apaga (0 linhas); nada muda",
       async (who) => {
-        await harness.inTx(async ({ tx, ids, as, asOwner }) => {
-          const s = await seed(tx, ids);
+        await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
           await as(ids[who]);
           expect(await attempt(tx, (x) => x.insert(professionalWorkHours).values(hour(s.pA)))).toBe("42501");
           expect(await attempt(tx, (x) => x.insert(professionalTimeOff).values(off(s.pA)))).toBe("42501");
@@ -260,8 +257,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     );
 
     it.each(["stranger", "inactive", "deleted"] as const)("usuário %s não escreve (42501)", async (who) => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids[who]);
         expect(await attempt(tx, (x) => x.insert(professionalWorkHours).values(hour(s.pA)))).toBe("42501");
         expect(await attempt(tx, (x) => x.insert(professionalTimeOff).values(off(s.pA)))).toBe("42501");
@@ -269,8 +265,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     });
 
     it("admin com aal1 não escreve nem apaga", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin, "aal1");
         expect(await attempt(tx, (x) => x.insert(professionalWorkHours).values(hour(s.pA)))).toBe("42501");
         expect(await attempt(tx, (x) => x.insert(professionalTimeOff).values(off(s.pA)))).toBe("42501");
@@ -280,8 +275,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     });
 
     it("admin apaga as linhas de um profissional removido (limpeza), a recepção não", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.reception);
         const byReception = await tx.delete(professionalWorkHours).where(eq(professionalWorkHours.id, s.hRemoved)).returning({ id: professionalWorkHours.id });
         expect(byReception).toEqual([]);
@@ -294,8 +288,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     });
 
     it("ninguém atualiza (sem UPDATE), nem o admin: 42501", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(
           await attempt(tx, (x) => x.update(professionalWorkHours).set({ weekday: 5 }).where(eq(professionalWorkHours.id, s.hA1))),
@@ -307,8 +300,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     });
 
     it("admin não grava para profissional REMOVIDO nem inexistente (42501, política)", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         const missing = "00000000-0000-4000-8000-000000000000";
         for (const professionalId of [s.pRemoved, missing]) {
@@ -321,8 +313,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     it.each(["reception", "professional"] as const)(
       "%s recebe SEMPRE 42501 ao escrever, mesmo com sobreposição, valor inválido ou profissional escondido (nada vaza por erro de constraint)",
       async (who) => {
-        await harness.inTx(async ({ tx, ids, as }) => {
-          const s = await seed(tx, ids);
+        await shared.run(async ({ tx, ids, as, seed: s }) => {
           await as(ids[who]);
           const cases: Array<(x: Tx) => Promise<unknown>> = [
             (x) => x.insert(professionalWorkHours).values(hour(s.pA, { weekday: 1, startMinute: H(9), endMinute: H(11) })), // sobrepõe hA1
@@ -350,8 +341,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     });
 
     it("faixa sobreposta do mesmo profissional no mesmo dia é recusada pelo banco (23P01), inclusive repetida e contida", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         for (const over of [
           { weekday: 1, startMinute: H(8), endMinute: H(12) }, // igual à hA1
@@ -366,8 +356,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     });
 
     it("faixas que apenas ENCOSTAM valem (12:00 fim e 12:00 início); outro dia e outro profissional também", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         for (const over of [
           { weekday: 1, startMinute: H(12), endMinute: H(14) }, // entre hA1 e hA2, encostando nas duas
@@ -387,8 +376,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     });
 
     it("depois de apagar a faixa, o mesmo horário pode ser recriado (editar a semana = substituir)", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         await tx.delete(professionalWorkHours).where(eq(professionalWorkHours.id, s.hA1));
         expect(
@@ -410,16 +398,14 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
       ["fim igual ao início", { startMinute: H(8), endMinute: H(8) }],
       ["fim antes do início", { startMinute: H(12), endMinute: H(8) }],
     ])("recusa %s (23514)", async (_label, over) => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(await attempt(tx, (x) => x.insert(professionalWorkHours).values(base(s.pA, over)))).toBe("23514");
       });
     });
 
     it("aceita os limites exatos (00:00 até 24:00, domingo e sábado)", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         for (const over of [
           { weekday: 0, startMinute: 0, endMinute: 1440 },
@@ -432,8 +418,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     });
 
     it("não dá para apagar (nem como dono) um profissional que tem faixas ou folgas (restrict)", async () => {
-      await harness.inTx(async ({ tx, ids, asOwner }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, asOwner, seed: s }) => {
         await asOwner();
         expect(await attempt(tx, (x) => x.delete(professionals).where(eq(professionals.id, s.pA)))).toBe("23503");
       });
@@ -457,8 +442,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
       ["motivo com espaço na ponta", { reason: "Férias " }],
       ["motivo com 121 caracteres", { reason: "a".repeat(121) }],
     ])("recusa %s (23514)", async (_label, over) => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(await attempt(tx, (x) => x.insert(professionalTimeOff).values(base(s.pA, over)))).toBe("23514");
       });
@@ -470,16 +454,14 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
       ["fim depois de 2101-01-02", { startsAt: t("2101-01-01T00:00:00Z"), endsAt: t("2101-01-03T00:00:00Z") }],
       ["ano 9999", { startsAt: t("9999-12-30T00:00:00Z"), endsAt: t("9999-12-31T00:00:00Z") }],
     ])("recusa período fora de 2000 a 2100: %s (23514)", async (_label, over) => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(await attempt(tx, (x) => x.insert(professionalTimeOff).values(base(s.pA, over)))).toBe("23514");
       });
     });
 
     it("aceita os extremos de 2000 e de 2100 (folga de dia inteiro em 31/12/2100 termina em 01/01/2101)", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         for (const over of [
           { startsAt: t("2000-01-01T03:00:00Z"), endsAt: t("2000-01-02T03:00:00Z") },
@@ -491,8 +473,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     });
 
     it("aceita 366 dias exatos, 1 minuto de bloqueio, motivo com 120 caracteres e sem motivo", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         const start = t("2027-02-01T03:00:00Z");
         for (const over of [
@@ -507,8 +488,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     });
 
     it("folgas que se sobrepõem são permitidas (vale a união)", async () => {
-      await harness.inTx(async ({ tx, ids, as }) => {
-        const s = await seed(tx, ids);
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids.admin);
         expect(
           await attempt(tx, (x) =>
@@ -523,7 +503,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     it.each(["professional_work_hours", "professional_time_off"])(
       "%s: anon não tem nada; authenticated só SELECT/INSERT/DELETE; sem UPDATE/TRUNCATE/REFERENCES/TRIGGER; RLS ligada",
       async (table) => {
-        await harness.inTx(async ({ tx, asOwner }) => {
+        await shared.run(async ({ tx, asOwner }) => {
           await asOwner();
           const [row] = await tx.execute<Record<string, boolean>>(sql`
             select
