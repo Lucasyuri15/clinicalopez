@@ -169,6 +169,20 @@
       "when": 1795324414619,
       "tag": "0023_patient_consents_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1795332148269,
+      "tag": "0024_appointments",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1795332205268,
+      "tag": "0025_appointments_access",
+      "breakpoints": true
     }
   ]
 }
