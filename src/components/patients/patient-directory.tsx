@@ -4,6 +4,7 @@ import Link from "next/link";
 import { startTransition, useActionState } from "react";
 
 import { StatusBadge } from "@/components/catalog/status-badge";
+import { NoConsentBadge } from "@/components/patients/consent-badge";
 import { PatientSheet, type SheetInsurance, type SheetProfessional } from "@/components/patients/patient-sheet";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -109,7 +110,8 @@ export function PatientDirectory({ initial, canEdit, today, limit, creation }: P
                           {formatBirthDate(patient.birthDate)} · {formatAge(ageInYears(patient.birthDate, today))}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {patient.lacksDataConsent ? <NoConsentBadge /> : null}
                         <StatusBadge active={patient.active} />
                         <Link
                           href={`/pacientes/${patient.id}`}

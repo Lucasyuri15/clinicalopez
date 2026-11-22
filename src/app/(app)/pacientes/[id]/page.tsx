@@ -4,18 +4,22 @@ import { notFound } from "next/navigation";
 
 import { ActiveToggle } from "@/components/catalog/active-toggle";
 import { StatusBadge } from "@/components/catalog/status-badge";
+import { ConsentCard } from "@/components/patients/consent-card";
+import { NoConsentBadge } from "@/components/patients/consent-badge";
 import { PatientSheet, type EditablePatient } from "@/components/patients/patient-sheet";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { specialtyLabel } from "@/lib/catalog/labels";
 import { todayBR } from "@/lib/datetime";
 import { ageInYears } from "@/lib/patients/age";
+import { currentConsents, lacksDataConsent } from "@/lib/patients/consents";
 import { formatCpf } from "@/lib/patients/cpf";
 import { formatAge, formatBirthDate } from "@/lib/patients/labels";
 import { formatPhone } from "@/lib/phone";
 import { requirePageAccess } from "@/server/auth/session";
 import { listInsurances } from "@/server/catalog/queries";
 import { removePatientAction, setPatientActiveAction } from "@/server/patients/actions";
+import { listConsents } from "@/server/patients/consent-queries";
 import { getPatient, type PatientPrivateData } from "@/server/patients/queries";
 import { listProfessionals } from "@/server/professionals/queries";
 
@@ -51,9 +55,12 @@ export default async function PatientPage(props: PageProps<"/pacientes/[id]">) {
   const patient = await getPatient(actor, id, { staff: isStaff });
   if (!patient) notFound();
 
-  const [professionals, insurances] = isStaff
-    ? await Promise.all([listProfessionals(actor), listInsurances(actor)])
-    : [[], []];
+  // O histórico de consentimentos é só de admin e recepção: o profissional nem consulta (a RLS não
+  // devolveria linha) e nunca recebe o aviso.
+  const [professionals, insurances, consents] = isStaff
+    ? await Promise.all([listProfessionals(actor), listInsurances(actor), listConsents(actor, patient.id)])
+    : [[], [], []];
+  const missingDataConsent = isStaff && lacksDataConsent(currentConsents(consents));
   const data = isStaff ? patient.private : null;
   const insuranceName = data?.insuranceId ? insurances.find((i) => i.id === data.insuranceId)?.name : undefined;
   const professionalById = new Map(professionals.map((p) => [p.id, p]));
@@ -95,6 +102,7 @@ export default async function PatientPage(props: PageProps<"/pacientes/[id]">) {
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-semibold md:text-3xl">{patient.fullName}</h1>
             <StatusBadge active={patient.active} />
+            {missingDataConsent ? <NoConsentBadge /> : null}
           </div>
           {isStaff && editable ? (
             <div className="flex items-center gap-2">
@@ -185,6 +193,8 @@ export default async function PatientPage(props: PageProps<"/pacientes/[id]">) {
               </Card>
             </>
           )}
+
+          <ConsentCard patientId={patient.id} patientName={patient.fullName} today={today} events={consents} />
 
           <Card>
             <CardContent className="flex flex-col gap-2">
