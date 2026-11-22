@@ -53,6 +53,9 @@ export function formatDateTimeBR(input: Date | string): string {
 const DATE_TEXT = /^(\d{4})-(\d{2})-(\d{2})$/;
 const WALL_TIME_TEXT = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
+/** O instante de agora em milissegundos (para páginas de servidor, onde o lint de pureza veta `Date.now()`). */
+export const nowMs = (): number => Date.now();
+
 /** A data de hoje em Brasília, "AAAA-MM-DD" (não a do relógio UTC do servidor). */
 export function todayBR(now: Date = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
