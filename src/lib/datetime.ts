@@ -111,6 +111,24 @@ function wallClockMs(utcMs: number): number {
 }
 
 /**
+ * O relógio de parede de Brasília em um instante: data local "AAAA-MM-DD", minuto do dia (0 a 1439),
+ * segundo e dia da semana (0 = domingo a 6 = sábado), igual à convenção da grade de horários.
+ * Usa o fuso de verdade (`Intl`), nunca um deslocamento fixo. Numa hora que existiu duas vezes
+ * (fim do horário de verão) as duas ocorrências mostram o mesmo relógio.
+ */
+export function wallParts(instant: Date): { date: string; minute: number; second: number; weekday: number } {
+  if (Number.isNaN(instant.getTime())) throw new RangeError("Instante inválido.");
+  const wall = new Date(wallClockMs(instant.getTime()));
+  const pad = (value: number, size = 2) => String(value).padStart(size, "0");
+  return {
+    date: `${pad(wall.getUTCFullYear(), 4)}-${pad(wall.getUTCMonth() + 1)}-${pad(wall.getUTCDate())}`,
+    minute: wall.getUTCHours() * 60 + wall.getUTCMinutes(),
+    second: wall.getUTCSeconds(),
+    weekday: wall.getUTCDay(),
+  };
+}
+
+/**
  * Converte data e hora DIGITADAS em Brasília ("2026-12-24", "08:00") para o instante em UTC.
  * Usa o fuso de verdade (`Intl`), não um deslocamento fixo: o Brasil já teve horário de verão
  * (até fev/2019) e pode voltar a ter. Nos casos raros de transição: uma hora que NÃO existiu

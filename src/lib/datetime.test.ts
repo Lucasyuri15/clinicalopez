@@ -6,6 +6,7 @@ import {
   formatTimeBR,
   isRealDate,
   todayBR,
+  wallParts,
   zonedToUtc,
 } from "./datetime";
 
@@ -159,5 +160,54 @@ describe("zonedToUtc (horário de parede de Brasília para UTC)", () => {
     ["24/12/2026", "08:00"],
   ])("recusa %j %j", (date, time) => {
     expect(() => zonedToUtc(date, time)).toThrow(RangeError);
+  });
+});
+
+describe("wallParts (o relógio de parede de Brasília em um instante)", () => {
+  test("devolve data, minuto do dia, segundo e dia da semana locais", () => {
+    // 2026-11-23 (segunda) 08:30:15 em Brasília = 11:30:15 UTC
+    expect(wallParts(new Date("2026-11-23T11:30:15Z"))).toEqual({
+      date: "2026-11-23",
+      minute: 8 * 60 + 30,
+      second: 15,
+      weekday: 1,
+    });
+  });
+
+  test("usa o dia local, não o dia UTC (virada da meia-noite)", () => {
+    // 02:00 UTC de segunda ainda é domingo 23:00 em Brasília
+    expect(wallParts(new Date("2026-11-23T02:00:00Z"))).toMatchObject({ date: "2026-11-22", minute: 23 * 60, weekday: 0 });
+    // 03:00 UTC já é segunda 00:00
+    expect(wallParts(new Date("2026-11-23T03:00:00Z"))).toMatchObject({ date: "2026-11-23", minute: 0, weekday: 1 });
+  });
+
+  test("cobre todos os dias da semana (0 = domingo a 6 = sábado)", () => {
+    const week = ["2026-11-22", "2026-11-23", "2026-11-24", "2026-11-25", "2026-11-26", "2026-11-27", "2026-11-28"];
+    week.forEach((date, index) => {
+      expect(wallParts(zonedToUtc(date, "12:00")).weekday, date).toBe(index);
+    });
+  });
+
+  test("é o inverso de zonedToUtc, inclusive com o horário de verão antigo do Brasil", () => {
+    for (const [date, time, minute] of [
+      ["2026-12-24", "08:05", 8 * 60 + 5],
+      ["2018-01-15", "14:00", 14 * 60], // em horário de verão (UTC-2)
+      ["2018-07-15", "14:00", 14 * 60], // fora dele (UTC-3)
+      ["2019-02-16", "23:55", 23 * 60 + 55],
+    ] as const) {
+      expect(wallParts(zonedToUtc(date, time)), `${date} ${time}`).toMatchObject({ date, minute, second: 0 });
+    }
+  });
+
+  test("hora que existiu duas vezes (fim do horário de verão, 2019-02-17): as duas ocorrências mostram o mesmo relógio", () => {
+    // 23:30 de 16/02 em UTC-2 = 01:30 UTC; o relógio voltou e 23:30 ocorreu de novo (UTC-3) = 02:30 UTC
+    const first = wallParts(new Date("2019-02-17T01:30:00Z"));
+    const second = wallParts(new Date("2019-02-17T02:30:00Z"));
+    expect(first).toMatchObject({ date: "2019-02-16", minute: 23 * 60 + 30 });
+    expect(second).toMatchObject({ date: "2019-02-16", minute: 23 * 60 + 30 });
+  });
+
+  test("recusa instante inválido", () => {
+    expect(() => wallParts(new Date("x"))).toThrow(RangeError);
   });
 });
