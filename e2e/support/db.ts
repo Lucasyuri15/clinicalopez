@@ -60,6 +60,9 @@ export async function deleteFixtureUsers(): Promise<number> {
   try {
     return await sql.begin(async (tx) => {
       const pattern = `${FIXTURE_PREFIX}%@${FIXTURE_DOMAIN}`;
+      // Consentimentos registrados por esses usuários referenciam o perfil (FK restrict).
+      await tx`delete from public.patient_consents where registered_by in
+        (select id from auth.users where email like ${pattern})`;
       await tx`delete from public.profiles where id in (select id from auth.users where email like ${pattern})`;
       const removed = await tx`delete from auth.users where email like ${pattern} returning id`;
       return removed.length;
@@ -106,6 +109,8 @@ export async function deleteFixtureUser(email: string): Promise<void> {
   const sql = connect();
   try {
     await sql.begin(async (tx) => {
+      await tx`delete from public.patient_consents where registered_by in
+        (select id from auth.users where email = ${email})`;
       await tx`delete from public.profiles where id in (select id from auth.users where email = ${email})`;
       await tx`delete from auth.users where email = ${email}`;
     });
@@ -527,6 +532,9 @@ export async function deletePatients(tag: string): Promise<void> {
   try {
     await sql.begin(async (tx) => {
       const like = `${tag}%`;
+      // Consentimentos primeiro: referenciam o paciente (FK restrict).
+      await tx`delete from public.patient_consents where patient_id in
+        (select id from public.patients where full_name like ${like})`;
       await tx`delete from public.patient_professionals where patient_id in
         (select id from public.patients where full_name like ${like})`;
       await tx`delete from public.patient_private where patient_id in
@@ -564,6 +572,72 @@ export async function patientsState(tag: string): Promise<
       from public.patients p left join public.patient_private pp on pp.patient_id = p.id
       where p.full_name like ${`${tag}%`} order by p.full_name`;
     return rows as unknown as Awaited<ReturnType<typeof patientsState>>;
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+/** Consentimentos REAIS gravados dos pacientes do teste, do mais antigo ao mais novo registro. */
+export async function consentsState(tag: string): Promise<
+  {
+    patient: string;
+    kind: string;
+    granted: boolean;
+    givenBy: string;
+    method: string;
+    occurredOn: string;
+    note: string | null;
+    registeredByEmail: string;
+  }[]
+> {
+  if (!/^\[e2e-cat [0-9a-f]{8}\]$/.test(tag)) throw new Error("Recusado: etiqueta de e2e inválida.");
+  const sql = connect();
+  try {
+    const rows = await sql`
+      select p.full_name as patient, c.kind, c.granted, c.given_by as "givenBy", c.method,
+        c.occurred_on::text as "occurredOn", c.note, u.email as "registeredByEmail"
+      from public.patient_consents c
+      join public.patients p on p.id = c.patient_id
+      join auth.users u on u.id = c.registered_by
+      where p.full_name like ${`${tag}%`} order by c.created_at, c.id`;
+    return rows as unknown as Awaited<ReturnType<typeof consentsState>>;
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+/** Semeia um consentimento de um paciente do teste (registrado em nome de `registeredByEmail`). */
+export async function seedConsent(input: {
+  patientName: string;
+  registeredByEmail: string;
+  kind?: "data_processing" | "whatsapp";
+  granted?: boolean;
+  note?: string;
+}): Promise<void> {
+  if (!/^\[e2e-cat [0-9a-f]{8}\] /.test(input.patientName)) throw new Error("Recusado: paciente de e2e inválido.");
+  if (input.registeredByEmail === "") throw new Error("seedConsent: e-mail de quem registra está vazio.");
+  const sql = connect();
+  try {
+    const inserted = await sql`insert into public.patient_consents (patient_id, kind, granted, given_by, method, occurred_on, note, registered_by)
+      select p.id, ${input.kind ?? "data_processing"}, ${input.granted ?? true}, 'patient', 'signed_paper',
+        '2026-01-10', ${input.note ?? null}, u.id
+      from public.patients p, auth.users u
+      where p.full_name = ${input.patientName} and u.email = ${input.registeredByEmail}
+      returning id`;
+    // O `insert ... select` não falha quando nada casa: sem esta conferência, um teste de "não vê
+    // consentimento" passaria contra um paciente que nem tem consentimento.
+    if (inserted.length !== 1) throw new Error(`seedConsent: esperava inserir 1 consentimento e inseri ${inserted.length}.`);
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+/** Remove (soft delete) um paciente do teste por SQL, para semear a tela de reativação. */
+export async function softDeletePatient(name: string): Promise<void> {
+  if (!/^\[e2e-cat [0-9a-f]{8}\] /.test(name)) throw new Error("Recusado: paciente de e2e inválido.");
+  const sql = connect();
+  try {
+    await sql`update public.patients set deleted_at = now() where full_name = ${name}`;
   } finally {
     await sql.end({ timeout: 2 });
   }

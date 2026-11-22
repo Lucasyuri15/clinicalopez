@@ -9,6 +9,7 @@ import {
   patientIdByName,
   professionalIdByName,
   profileIdByEmail,
+  seedConsent,
   seedPatients,
   seedProfessionals,
   seedSchedule,
@@ -154,5 +155,34 @@ asProfessional.describe("perfil profissional: só o próprio cadastro e a própr
         expect(html, secret).not.toContain(secret);
       }
     }
+  });
+
+  asProfessional("não vê consentimento LGPD, nem o aviso, nem no código da página; não abre os removidos", async ({ page }, testInfo) => {
+    const adminEmail = readUsers()[`${testInfo.project.name}-admin`]?.email ?? "";
+    expect(adminEmail, "o admin fictício do projeto precisa existir para registrar o consentimento").not.toBe("");
+    const secretNote = "Nota reservada do consentimento";
+    // O paciente dele TEM consentimento registrado (por um admin): o profissional não pode ver nem isso.
+    await seedConsent({ patientName: patients.own.name, registeredByEmail: adminEmail, note: secretNote });
+    const id = await patientIdByName(patients.own.name);
+
+    await page.goto(`/pacientes/${id}`);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(patients.own.name);
+    await expect(page.getByText("Consentimentos (LGPD)")).toHaveCount(0);
+    await expect(page.getByText("Sem consentimento LGPD")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Registrar consentimento/ })).toHaveCount(0);
+    const html = await page.content();
+    for (const secret of [secretNote, "Consentimentos (LGPD)", "Papel assinado"]) {
+      expect(html, secret).not.toContain(secret);
+    }
+
+    // a lista dele também não traz o aviso (nem o de quem teria consentimento a registrar)
+    await page.goto("/pacientes");
+    await expect(card(page, patients.own.name)).toHaveCount(1);
+    await expect(page.getByText("Sem consentimento LGPD")).toHaveCount(0);
+
+    // reativar removidos é só do admin: o profissional volta ao Dashboard
+    await page.goto("/pacientes/removidos");
+    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page.getByText("Pacientes removidos")).toHaveCount(0);
   });
 });
