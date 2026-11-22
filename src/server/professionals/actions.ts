@@ -30,7 +30,7 @@ const MESSAGES = {
   generic: "Não foi possível concluir. Tente novamente.",
   notFound: "Registro não encontrado. Atualize a página e tente de novo.",
   denied:
-    "Não foi possível salvar. Confira o login e os serviços escolhidos (devem ser da mesma especialidade) e tente de novo.",
+    "Não foi possível salvar. Confira o login e os serviços escolhidos (devem ser da mesma especialidade) e tente de novo. Quem já tem atendimentos não pode trocar de especialidade.",
   duplicateName: "Já existe um profissional com esse nome nessa especialidade.",
   duplicateLogin: "Este login já está vinculado a outro profissional.",
 } as const;

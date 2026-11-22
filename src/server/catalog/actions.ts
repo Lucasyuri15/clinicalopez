@@ -47,7 +47,7 @@ const MESSAGES = {
   notFound: "Registro não encontrado. Atualize a página e tente de novo.",
   denied: "Não foi possível salvar. Atualize a página e tente de novo.",
   deniedServiceEdit:
-    "Não foi possível salvar. Se este serviço já está ligado a profissionais, desligue-o deles antes de trocar a especialidade.",
+    "Não foi possível salvar. Se este serviço já está ligado a profissionais ou a atendimentos, a especialidade não pode ser trocada: desligue-o dos profissionais e, havendo atendimentos, desative-o e crie outro.",
   duplicateService: "Já existe um serviço com esse nome nessa especialidade.",
   duplicateInsurance: "Já existe um convênio com esse nome.",
   duplicatePrice: "Outra pessoa alterou este valor. Atualize a página e tente de novo.",
