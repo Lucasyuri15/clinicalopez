@@ -7,11 +7,11 @@ import { professionalTimeOff, professionalWorkHours, professionals, profiles } f
 
 /**
  * RLS da grade de horários (faixas semanais e folgas/bloqueios) contra o Supabase DEV, só dados
- * fictícios, transações sempre revertidas. Regras (spec 1B-2b): admin lê e escreve tudo;
- * recepção lê as de profissionais não removidos e não escreve; profissional lê SÓ as próprias
- * (nunca as de colegas); só admin grava; DELETE só do admin e sem UPDATE; `aal1` não passa; sem
- * perfil, inativo ou removido não vê nada. O banco recusa faixas sobrepostas (exclusão) e valores
- * fora dos limites (checks).
+ * fictícios, transações sempre revertidas. Regras (spec 1B-2b, e a 0026 que deu a escrita à recepção):
+ * admin lê e escreve tudo; recepção lê as de profissionais não removidos e TAMBÉM grava e apaga as
+ * deles (nunca as de removido); profissional lê SÓ as próprias (nunca as de colegas) e não grava;
+ * sem UPDATE para ninguém; `aal1` não passa; sem perfil, inativo ou removido não vê nada. O banco
+ * recusa faixas sobrepostas (exclusão) e valores fora dos limites (checks).
  */
 describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)", () => {
   const harness = createRlsHarness();
@@ -210,7 +210,7 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
     });
   });
 
-  describe("escrita (só admin)", () => {
+  describe("escrita (admin e recepção; o profissional só lê)", () => {
     const hour = (professionalId: string, over: Partial<typeof professionalWorkHours.$inferInsert> = {}) => ({
       professionalId,
       weekday: 3,
@@ -225,9 +225,9 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
       ...over,
     });
 
-    it("admin cria e apaga faixas e folgas", async () => {
+    it.each(["admin", "reception"] as const)("%s cria e apaga faixas e folgas", async (who) => {
       await shared.run(async ({ tx, ids, as, seed: s }) => {
-        await as(ids.admin);
+        await as(ids[who]);
         const [h] = await tx.insert(professionalWorkHours).values(hour(s.pA)).returning({ id: professionalWorkHours.id });
         const [o] = await tx.insert(professionalTimeOff).values(off(s.pA)).returning({ id: professionalTimeOff.id });
         expect(h?.id && o?.id).toBeTruthy();
@@ -238,39 +238,59 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
       });
     });
 
-    it.each(["reception", "professional"] as const)(
-      "%s não cria (42501) nem apaga (0 linhas); nada muda",
-      async (who) => {
-        await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
-          await as(ids[who]);
-          expect(await attempt(tx, (x) => x.insert(professionalWorkHours).values(hour(s.pA)))).toBe("42501");
-          expect(await attempt(tx, (x) => x.insert(professionalTimeOff).values(off(s.pA)))).toBe("42501");
-          const goneH = await tx.delete(professionalWorkHours).where(inArray(professionalWorkHours.professionalId, [s.pA, s.pB])).returning({ id: professionalWorkHours.id });
-          const goneO = await tx.delete(professionalTimeOff).where(inArray(professionalTimeOff.professionalId, [s.pA, s.pB])).returning({ id: professionalTimeOff.id });
-          expect(goneH).toEqual([]);
-          expect(goneO).toEqual([]);
-          await asOwner();
-          expect(await seenHours(tx, s)).toEqual(sorted([s.hA1, s.hA2, s.hB, s.hRemoved]));
-          expect(await seenOff(tx, s)).toEqual(sorted([s.oA, s.oB, s.oRemoved]));
-        });
-      },
-    );
+    it("recepção troca a semana inteira de um profissional (apaga e recria na mesma transação)", async () => {
+      await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
+        await as(ids.reception);
+        await tx.delete(professionalWorkHours).where(eq(professionalWorkHours.professionalId, s.pA));
+        await tx.insert(professionalWorkHours).values([
+          hour(s.pA, { weekday: 1, startMinute: H(9), endMinute: H(12) }),
+          hour(s.pA, { weekday: 1, startMinute: H(13), endMinute: H(17) }),
+        ]);
+        await asOwner();
+        const rows = await tx
+          .select({ start: professionalWorkHours.startMinute, end: professionalWorkHours.endMinute })
+          .from(professionalWorkHours)
+          .where(eq(professionalWorkHours.professionalId, s.pA));
+        expect(rows.map((r) => [r.start, r.end]).sort()).toEqual([[H(9), H(12)], [H(13), H(17)]]);
+        // o colega não foi tocado
+        expect(await seenHours(tx, s)).toContain(s.hB);
+      });
+    });
 
-    it.each(["stranger", "inactive", "deleted"] as const)("usuário %s não escreve (42501)", async (who) => {
+    it("profissional não cria (42501) nem apaga (0 linhas); nada muda", async () => {
+      await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
+        await as(ids.professional);
+        expect(await attempt(tx, (x) => x.insert(professionalWorkHours).values(hour(s.pA)))).toBe("42501");
+        expect(await attempt(tx, (x) => x.insert(professionalTimeOff).values(off(s.pA)))).toBe("42501");
+        const goneH = await tx.delete(professionalWorkHours).where(inArray(professionalWorkHours.professionalId, [s.pA, s.pB])).returning({ id: professionalWorkHours.id });
+        const goneO = await tx.delete(professionalTimeOff).where(inArray(professionalTimeOff.professionalId, [s.pA, s.pB])).returning({ id: professionalTimeOff.id });
+        expect(goneH).toEqual([]);
+        expect(goneO).toEqual([]);
+        await asOwner();
+        expect(await seenHours(tx, s)).toEqual(sorted([s.hA1, s.hA2, s.hB, s.hRemoved]));
+        expect(await seenOff(tx, s)).toEqual(sorted([s.oA, s.oB, s.oRemoved]));
+      });
+    });
+
+    it.each(["stranger", "inactive", "deleted"] as const)("usuário %s não escreve (42501) nem apaga", async (who) => {
       await shared.run(async ({ tx, ids, as, seed: s }) => {
         await as(ids[who]);
         expect(await attempt(tx, (x) => x.insert(professionalWorkHours).values(hour(s.pA)))).toBe("42501");
         expect(await attempt(tx, (x) => x.insert(professionalTimeOff).values(off(s.pA)))).toBe("42501");
+        expect(await tx.delete(professionalWorkHours).where(eq(professionalWorkHours.id, s.hA1)).returning({ id: professionalWorkHours.id })).toEqual([]);
+        expect(await tx.delete(professionalTimeOff).where(eq(professionalTimeOff.id, s.oA)).returning({ id: professionalTimeOff.id })).toEqual([]);
       });
     });
 
-    it("admin com aal1 não escreve nem apaga", async () => {
+    it.each(["admin", "reception"] as const)("%s com aal1 não escreve nem apaga", async (who) => {
       await shared.run(async ({ tx, ids, as, seed: s }) => {
-        await as(ids.admin, "aal1");
+        await as(ids[who], "aal1");
         expect(await attempt(tx, (x) => x.insert(professionalWorkHours).values(hour(s.pA)))).toBe("42501");
         expect(await attempt(tx, (x) => x.insert(professionalTimeOff).values(off(s.pA)))).toBe("42501");
         const goneH = await tx.delete(professionalWorkHours).where(eq(professionalWorkHours.id, s.hA1)).returning({ id: professionalWorkHours.id });
+        const goneO = await tx.delete(professionalTimeOff).where(eq(professionalTimeOff.id, s.oA)).returning({ id: professionalTimeOff.id });
         expect(goneH).toEqual([]);
+        expect(goneO).toEqual([]);
       });
     });
 
@@ -279,6 +299,8 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
         await as(ids.reception);
         const byReception = await tx.delete(professionalWorkHours).where(eq(professionalWorkHours.id, s.hRemoved)).returning({ id: professionalWorkHours.id });
         expect(byReception).toEqual([]);
+        const offByReception = await tx.delete(professionalTimeOff).where(eq(professionalTimeOff.id, s.oRemoved)).returning({ id: professionalTimeOff.id });
+        expect(offByReception).toEqual([]);
         await as(ids.admin);
         const byAdmin = await tx.delete(professionalWorkHours).where(eq(professionalWorkHours.id, s.hRemoved)).returning({ id: professionalWorkHours.id });
         expect(byAdmin).toHaveLength(1);
@@ -287,9 +309,9 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
       });
     });
 
-    it("ninguém atualiza (sem UPDATE), nem o admin: 42501", async () => {
+    it.each(["admin", "reception"] as const)("ninguém atualiza (sem UPDATE), nem %s: 42501", async (who) => {
       await shared.run(async ({ tx, ids, as, seed: s }) => {
-        await as(ids.admin);
+        await as(ids[who]);
         expect(
           await attempt(tx, (x) => x.update(professionalWorkHours).set({ weekday: 5 }).where(eq(professionalWorkHours.id, s.hA1))),
         ).toBe("42501");
@@ -299,9 +321,9 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
       });
     });
 
-    it("admin não grava para profissional REMOVIDO nem inexistente (42501, política)", async () => {
+    it.each(["admin", "reception"] as const)("%s não grava para profissional REMOVIDO nem inexistente (42501, política)", async (who) => {
       await shared.run(async ({ tx, ids, as, seed: s }) => {
-        await as(ids.admin);
+        await as(ids[who]);
         const missing = "00000000-0000-4000-8000-000000000000";
         for (const professionalId of [s.pRemoved, missing]) {
           expect(await attempt(tx, (x) => x.insert(professionalWorkHours).values(hour(professionalId)))).toBe("42501");
@@ -310,25 +332,44 @@ describe.skipIf(!hasDb)("RLS da grade de horários (integração, Supabase dev)"
       });
     });
 
-    it.each(["reception", "professional"] as const)(
-      "%s recebe SEMPRE 42501 ao escrever, mesmo com sobreposição, valor inválido ou profissional escondido (nada vaza por erro de constraint)",
-      async (who) => {
-        await shared.run(async ({ tx, ids, as, seed: s }) => {
-          await as(ids[who]);
-          const cases: Array<(x: Tx) => Promise<unknown>> = [
-            (x) => x.insert(professionalWorkHours).values(hour(s.pA, { weekday: 1, startMinute: H(9), endMinute: H(11) })), // sobrepõe hA1
-            (x) => x.insert(professionalWorkHours).values(hour(s.pA, { startMinute: H(12), endMinute: H(8) })), // fim antes do início
-            (x) => x.insert(professionalWorkHours).values(hour(s.pA, { weekday: 9 })), // dia inválido
-            (x) => x.insert(professionalWorkHours).values(hour(s.pRemoved)), // profissional removido (que nem enxergam)
-            (x) => x.insert(professionalWorkHours).values(hour("00000000-0000-4000-8000-000000000000")), // inexistente
-            (x) => x.insert(professionalTimeOff).values(off(s.pA, { startsAt: t("2027-01-05T00:00:00Z"), endsAt: t("2027-01-04T00:00:00Z") })),
-            (x) => x.insert(professionalTimeOff).values(off(s.pA, { reason: " " })),
-            (x) => x.insert(professionalTimeOff).values(off(s.pRemoved)),
-          ];
-          for (const run of cases) expect(await attempt(tx, run)).toBe("42501");
-        });
-      },
-    );
+    it("profissional recebe SEMPRE 42501 ao escrever, mesmo com sobreposição, valor inválido ou profissional escondido (nada vaza por erro de constraint)", async () => {
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
+        await as(ids.professional);
+        const cases: Array<(x: Tx) => Promise<unknown>> = [
+          (x) => x.insert(professionalWorkHours).values(hour(s.pA, { weekday: 1, startMinute: H(9), endMinute: H(11) })), // sobrepõe hA1
+          (x) => x.insert(professionalWorkHours).values(hour(s.pA, { startMinute: H(12), endMinute: H(8) })), // fim antes do início
+          (x) => x.insert(professionalWorkHours).values(hour(s.pA, { weekday: 9 })), // dia inválido
+          (x) => x.insert(professionalWorkHours).values(hour(s.pB)), // colega (que ele nem enxerga)
+          (x) => x.insert(professionalWorkHours).values(hour(s.pRemoved)), // profissional removido
+          (x) => x.insert(professionalWorkHours).values(hour("00000000-0000-4000-8000-000000000000")), // inexistente
+          (x) => x.insert(professionalTimeOff).values(off(s.pA, { startsAt: t("2027-01-05T00:00:00Z"), endsAt: t("2027-01-04T00:00:00Z") })),
+          (x) => x.insert(professionalTimeOff).values(off(s.pA, { reason: " " })),
+          (x) => x.insert(professionalTimeOff).values(off(s.pRemoved)),
+        ];
+        for (const run of cases) expect(await attempt(tx, run)).toBe("42501");
+      });
+    });
+
+    it("recepção, num profissional que ela LÊ, recebe o erro real das regras (sobreposição 23P01, limites 23514), como o admin; só o que ela não vê é 42501", async () => {
+      await shared.run(async ({ tx, ids, as, seed: s }) => {
+        await as(ids.reception);
+        expect(
+          await attempt(tx, (x) => x.insert(professionalWorkHours).values(hour(s.pA, { weekday: 1, startMinute: H(9), endMinute: H(11) }))),
+        ).toBe("23P01"); // sobrepõe hA1, que ela lê
+        expect(
+          await attempt(tx, (x) => x.insert(professionalWorkHours).values(hour(s.pA, { startMinute: H(12), endMinute: H(8) }))),
+        ).toBe("23514");
+        expect(
+          await attempt(tx, (x) =>
+            x.insert(professionalTimeOff).values(off(s.pA, { startsAt: t("2027-01-05T00:00:00Z"), endsAt: t("2027-01-04T00:00:00Z") })),
+          ),
+        ).toBe("23514");
+        // profissional removido: ela não o enxerga, então nem as regras respondem (política primeiro)
+        expect(
+          await attempt(tx, (x) => x.insert(professionalWorkHours).values(hour(s.pRemoved, { weekday: 2, startMinute: H(9), endMinute: H(11) }))),
+        ).toBe("42501");
+      });
+    });
   });
 
   describe("faixas semanais: regras do banco", () => {

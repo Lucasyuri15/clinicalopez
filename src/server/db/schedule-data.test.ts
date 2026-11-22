@@ -132,7 +132,18 @@ describe.skipIf(!hasDb)("camada de dados da grade de horários (integração, Su
       expect(await rowsOf(ids.removed)).toEqual([]);
     });
 
-    it.each(["reception", "prof1", "prof2"] as const)("%s não grava (a RLS nega) e nada muda, nem com semana vazia", async (who) => {
+    it("a recepção grava e troca a semana (mesma regra do admin)", async () => {
+      expect(await saveWeek(users.reception, { professionalId: ids.p1, ranges: monTue })).toEqual({ ok: true, id: ids.p1 });
+      expect(await rowsOf(ids.p1)).toEqual(monTue);
+      const wed = [r(3, H(9), H(12))];
+      expect((await saveWeek(users.reception, { professionalId: ids.p1, ranges: wed })).ok).toBe(true);
+      expect(await rowsOf(ids.p1)).toEqual(wed);
+      // profissional removido: ela não o enxerga
+      expect(await saveWeek(users.reception, { professionalId: ids.removed, ranges: monTue })).toEqual({ ok: false, reason: "not-found" });
+      expect(await rowsOf(ids.removed)).toEqual([]);
+    });
+
+    it.each(["prof1", "prof2"] as const)("%s não grava (a RLS nega) e nada muda, nem com semana vazia", async (who) => {
       await saveWeek(users.admin, { professionalId: ids.p1, ranges: monTue });
       expect((await saveWeek(users[who], { professionalId: ids.p1, ranges: [r(4, H(8), H(9))] })).ok).toBe(false);
       expect((await saveWeek(users[who], { professionalId: ids.p1, ranges: [] })).ok).toBe(false); // "limpar" não vira sucesso
@@ -218,10 +229,20 @@ describe.skipIf(!hasDb)("camada de dados da grade de horários (integração, Su
       expect(await listTimeOff(users.admin, "não-é-uuid", { now })).toEqual([]);
     });
 
-    it("quem não é admin não cria nem remove", async () => {
+    it("a recepção cria e remove folga (e o profissional não)", async () => {
+      const made = await addTimeOff(users.reception, { professionalId: ids.p1, startsAt: day("2027-03-01T03:00:00Z"), endsAt: day("2027-03-02T03:00:00Z"), reason: "Pela recepção" });
+      expect(made.ok).toBe(true);
+      const madeId = made.ok ? made.id : "";
+      expect((await listTimeOff(users.admin, ids.p1, { now })).some((x) => x.reason === "Pela recepção")).toBe(true);
+      expect((await removeTimeOff(users.prof1, madeId)).ok).toBe(false); // o profissional não remove nem a própria
+      expect(await removeTimeOff(users.reception, madeId)).toEqual({ ok: true, id: madeId });
+      expect((await listTimeOff(users.admin, ids.p1, { now })).some((x) => x.reason === "Pela recepção")).toBe(false);
+    });
+
+    it("quem é profissional não cria nem remove", async () => {
       const created = await addTimeOff(users.admin, { professionalId: ids.p1, startsAt: day("2027-04-01T03:00:00Z"), endsAt: day("2027-04-02T03:00:00Z"), reason: "Alvo" });
       const id = created.ok ? created.id : "";
-      for (const who of ["reception", "prof1", "prof2"] as const) {
+      for (const who of ["prof1", "prof2"] as const) {
         expect(
           (await addTimeOff(users[who], { professionalId: ids.p1, startsAt: day("2027-05-01T03:00:00Z"), endsAt: day("2027-05-02T03:00:00Z"), reason: null })).ok,
         ).toBe(false);
