@@ -1,0 +1,16 @@
+# Spec — Recepção edita a grade e as folgas dos profissionais
+
+**Status:** aprovada pelo usuário em 2026-11-22 (plan mode). Substitui, **só neste ponto**, a regra "só o admin grava" da spec da 1B-2b (`2026-11-17-fase-1b2b-grade-horarios.md`).
+
+## Contexto e decisão
+A clínica usa o login **admin** só para desenvolver; quem opera a grade no dia a dia é a **recepção**. Até aqui a recepção só **lia** a grade (`professional_work_hours`) e as folgas (`professional_time_off`). Decisão do usuário: a recepção passa a **gravar** os dois. **Escopo fechado:** nada além da grade e das folgas. Cadastro de profissional (nome, serviços, login) e catálogo/convênios/valores continuam **só do admin**; o **profissional** continua só lendo a própria grade.
+
+## Como ficou
+- **Migração 0026** (`src/server/db/migrations/0026_schedule_reception_write.sql`, aplicada só no Supabase dev; a 0015 não foi editada): quatro políticas `PERMISSIVE` (INSERT e DELETE para `reception` em cada tabela), que **somam** às do admin. Condição: `app.current_app_role() = 'reception'` **e** profissional **não removido**. Sem UPDATE para ninguém; os `GRANT` já existiam; a política `RESTRICTIVE` de `aal2` continua valendo.
+- **Linhas de profissional removido:** a recepção não as lê nem as grava (política antes de qualquer constraint, `42501`); só o admin as apaga (limpeza).
+- **Efeito colateral aceito:** num profissional que a recepção **lê**, ela recebe o erro real das regras (sobreposição `23P01`, limites `23514`), como o admin; isso não vaza nada, porque ela já lê essas linhas. O profissional (papel) segue recebendo **sempre** `42501`.
+- **Ações:** `saveWeekAction`, `addTimeOffAction` e `removeTimeOffAction` passam a `requireRole("admin", "reception")`; o usuário vem sempre da sessão. A tela `/profissionais/[id]/horarios` mostra os editores quando `isStaffRole(role)` (lista explícita); o profissional vê a versão só de leitura. Nada muda em `mutations.ts` (a trava `scheduleLockKey` vale para qualquer papel).
+- **Testes:** RLS por papel (recepção insere e apaga em profissional ativo e troca a semana inteira; `42501` para removido e inexistente; `aal1` negado; sem UPDATE; profissional, estranho, inativo e removido não escrevem nem apagam), camada de dados (recepção grava; profissional recebe `denied`), ações (`requireRole("admin", "reception")`, usuário da sessão) e e2e (admin e recepção montam a semana e as folgas; o profissional só lê, em `professional-role.spec.ts`). Os testes novos falharam antes da migração e das ações (RED pelo motivo certo).
+
+## Revisão independente
+Sem achado crítico nem importante. Confirmado: as políticas casam exatamente com a intenção, o profissional, o estranho, o inativo/removido e o `aal1` não escrevem, nenhuma tabela ganha privilégio novo, a condição do DELETE é satisfatível pela leitura da recepção (sem `denied` falso) e nada em `mutations.ts` supunha admin. **Menores tratados:** comentários "(só administrador)" nos componentes, teste de DELETE para estranho/inativo/removido, notas nos docs históricos. **Aceitos:** os testes de RLS de `professionals`, catálogo e pacientes (que provam que a recepção segue sem escrever lá) não foram tocados, porque a mudança não mexe nessas tabelas.

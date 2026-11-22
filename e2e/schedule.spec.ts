@@ -7,7 +7,6 @@ import {
   deleteProfessionals,
   scheduleState,
   seedProfessionals,
-  seedSchedule,
 } from "./support/db";
 import { HAS_SUPABASE } from "./support/env";
 
@@ -17,20 +16,23 @@ const card = (page: Page, name: string) => page.getByRole("listitem").filter({ h
 const isoIn = (days: number) => new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
 // ---------------------------------------------------------------------------------------------
-// Administrador: monta a semana e as folgas pela tela; o banco confirma o que foi gravado.
+// Admin e recepção: montam a semana e as folgas pela tela; o banco confirma o que foi gravado.
+// (A recepção opera a grade no dia a dia; o que o PROFISSIONAL vê, só leitura, está em
+// `professional-role.spec.ts`.)
 // ---------------------------------------------------------------------------------------------
-const asAdmin = testAs("admin");
-asAdmin.describe("perfil admin: grade de horários", () => {
-  asAdmin.skip(!HAS_SUPABASE, "Sem .env.local do Supabase dev: e2e de autenticação pulados.");
-  asAdmin.skip(({ isMobile }) => isMobile, "somente no desktop");
+function describeSchedule(role: "admin" | "reception") {
+const asStaff = testAs(role);
+asStaff.describe(`perfil ${role}: grade de horários`, () => {
+  asStaff.skip(!HAS_SUPABASE, "Sem .env.local do Supabase dev: e2e de autenticação pulados.");
+  asStaff.skip(({ isMobile }) => isMobile, "somente no desktop");
 
   let tag = "";
   let seeded: Awaited<ReturnType<typeof seedProfessionals>>;
-  asAdmin.beforeEach(async () => {
+  asStaff.beforeEach(async () => {
     tag = catalogTag();
     seeded = await seedProfessionals(tag);
   });
-  asAdmin.afterEach(async () => {
+  asStaff.afterEach(async () => {
     if (!tag) return;
     await deleteProfessionals(tag);
     await deleteCatalog(tag);
@@ -43,7 +45,8 @@ asAdmin.describe("perfil admin: grade de horários", () => {
     await expect(page.getByRole("heading", { level: 1 })).toContainText(`Horários de ${seeded.own.name}`);
   }
 
-  asAdmin("monta a semana com intervalo, recusa sobreposição em português e confirma no banco", async ({ page }) => {
+  asStaff("monta a semana com intervalo, recusa sobreposição em português e confirma no banco", async ({ page }) => {
+    asStaff.setTimeout(90_000); // fluxo longo, com admin e recepção em paralelo no servidor de dev
     await openSchedule(page);
     const monday = page.getByRole("group", { name: "Segunda-feira" });
     await expect(monday).toContainText("Sem atendimento");
@@ -89,7 +92,8 @@ asAdmin.describe("perfil admin: grade de horários", () => {
     ]);
   });
 
-  asAdmin("cria folga de dia inteiro e bloqueio parcial, valida em português e remove", async ({ page }) => {
+  asStaff("cria folga de dia inteiro e bloqueio parcial, valida em português e remove", async ({ page }) => {
+    asStaff.setTimeout(90_000);
     await openSchedule(page);
     const reason = `${tag} Recesso`;
     const form = page.getByRole("heading", { name: "Adicionar folga ou bloqueio" }).locator("..");
@@ -130,38 +134,7 @@ asAdmin.describe("perfil admin: grade de horários", () => {
     expect((await scheduleState(seeded.own.name)).timeOff.map((x) => x.reason)).not.toContain(reason);
   });
 });
+}
 
-// ---------------------------------------------------------------------------------------------
-// Recepção: lê a grade e as folgas; nenhum controle de edição.
-// ---------------------------------------------------------------------------------------------
-const asReception = testAs("reception");
-asReception.describe("perfil recepção: só leitura da grade", () => {
-  asReception.skip(!HAS_SUPABASE, "Sem .env.local do Supabase dev: e2e de autenticação pulados.");
-
-  let tag = "";
-  let seeded: Awaited<ReturnType<typeof seedProfessionals>>;
-  let schedule: Awaited<ReturnType<typeof seedSchedule>>;
-  asReception.beforeEach(async () => {
-    tag = catalogTag();
-    seeded = await seedProfessionals(tag);
-    schedule = await seedSchedule(seeded);
-  });
-  asReception.afterEach(async () => {
-    if (!tag) return;
-    await deleteProfessionals(tag);
-    await deleteCatalog(tag);
-    tag = "";
-  });
-
-  asReception("vê a semana resumida e as folgas, sem editor nem botões de gravar", async ({ page }) => {
-    await page.goto("/profissionais");
-    await card(page, seeded.own.name).getByRole("link", { name: `Ver horários de ${seeded.own.name}` }).click();
-    await expect(page.getByRole("heading", { level: 1 })).toContainText(`Horários de ${seeded.own.name}`);
-    await expect(page.getByText("08:00–12:00 · 14:00–18:00")).toBeVisible();
-    await expect(page.getByText("Segunda-feira")).toBeVisible();
-    await expect(page.getByText(schedule.ownOffLabel)).toBeVisible();
-    await expect(page.getByText(schedule.ownOffReason)).toBeVisible();
-    await expect(page.getByRole("button", { name: /Salvar horários|Adicionar|Remover/ })).toHaveCount(0);
-    await expect(page.getByRole("textbox")).toHaveCount(0);
-  });
-});
+describeSchedule("admin");
+describeSchedule("reception");

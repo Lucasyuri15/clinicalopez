@@ -183,6 +183,13 @@
       "when": 1795332205268,
       "tag": "0025_appointments_access",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1795376589021,
+      "tag": "0026_schedule_reception_write",
+      "breakpoints": true
     }
   ]
 }

@@ -11,3 +11,5 @@ Spec: `docs/specs/2026-11-17-fase-1b2b-grade-horarios.md`. Branch: `feat/fase-1b
 - **T6 — Revisão final e docs. (FEITO)** Subagente independente; corrigir crítico/importante; `STATUS.md`, `AGENTS.md`, spec.
 
 Verificação final: `pnpm lint && pnpm typecheck && pnpm test`, `pnpm build`, `pnpm test:e2e`; `pnpm db:migrate` só no dev; conferência manual com os três papéis (desktop e celular).
+
+> **Atualização (2026-11-22):** a recepção também grava a grade e as folgas (migração 0026).

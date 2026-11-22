@@ -10,8 +10,8 @@ import { withUser } from "@/server/db/with-user";
 import type { ScheduleUser } from "./queries";
 
 /**
- * Gravações da grade de horários, sempre por `withUser` (a RLS só deixa o admin gravar; a camada
- * de ações ainda exige `requireRole("admin")`). O resultado é um valor, não uma exceção.
+ * Gravações da grade de horários, sempre por `withUser` (a RLS só deixa admin e recepção gravar; a
+ * camada de ações ainda exige `requireRole("admin", "reception")`). O resultado é um valor, não uma exceção.
  * - `overlap`: o banco recusou faixas sobrepostas (exclusão do mesmo profissional/dia).
  * - `not-found`: o profissional não existe, foi removido ou a RLS o esconde; ou nada a remover.
  * - `denied`: o banco recusou (sem permissão, valor fora dos limites, profissional removido...).
