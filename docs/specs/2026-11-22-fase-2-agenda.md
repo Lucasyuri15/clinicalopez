@@ -1,0 +1,55 @@
+# Spec — Fase 2: Agenda (agendamentos com conflito, status, remarcar/cancelar, visões dia e semana)
+
+**Status:** aprovada pelo usuário em 2026-11-22 (plan mode). **Plano:** `docs/plans/2026-11-22-fase-2-agenda.md`. Entregue em duas partes: **2A (núcleo)** e **2B (telas)**.
+
+## Contexto
+A Fase 1 (fundação, login com 2FA, endurecimento e todos os cadastros) está na `dev`. Falta a **agenda**. O PRD (4.2) pede: criar, remarcar e cancelar com **detecção de conflito de profissional e de paciente**, respeitando a grade e os bloqueios do profissional; status Agendada → Confirmada → Realizada, mais Falta e Cancelada (com motivo); visões dia e semana com filtro por profissional e especialidade. AGENTS.md: o conflito é **protegido pelo banco**, não só pela tela (meta: zero double booking).
+**Fora desta fase:** recorrência/pacotes e lista de espera (Fase 3), prontuário (4), financeiro (5), WhatsApp (6), visão mensal.
+
+## Decisões do usuário
+| Tema | Decisão |
+|---|---|
+| Serviço e duração | **Serviço obrigatório**; o fim vem sugerido pela duração do serviço, mas é **ajustável** por atendimento; o banco guarda início e fim reais. |
+| Grade e folgas | O servidor **recusa sempre** horário que não caiba inteiro na grade semanal ou que bata numa folga/bloqueio (sem encaixe). |
+| Vínculo | Ao agendar, **cria o vínculo** paciente↔profissional se faltar (o profissional passa a ver o cadastro básico do paciente, nunca CPF, endereço ou convênio). Cancelar não desfaz o vínculo. |
+| Preço | **Automático pelo convênio:** o valor do convênio do paciente se existir para o serviço; senão o particular; senão sem valor. Sem edição nesta fase. O profissional nunca vê o valor. |
+
+## Padrões assumidos (aprovados junto com o plano)
+- Início no passado é recusado. Realizada e Falta só depois do início.
+- Admin e recepção mudam status de Agendada/Confirmada; o **profissional só nos próprios**, e só Realizada ou Falta (Confirmada fica com a recepção); **só o admin corrige** Realizada ↔ Falta; Cancelada é terminal para todos; o profissional não cancela nem cria.
+- Remarcar não troca o profissional (para isso, cancelar e criar outro) e devolve uma Confirmada para Agendada.
+- Sem DELETE para ninguém: cancelar é o jeito de "apagar". Cancelada libera o horário; Realizada e Falta continuam ocupando.
+- Remover paciente, desativar profissional ou tirar um serviço dele com atendimentos futuros **não bloqueia** nesta fase (tratamento fino na Fase 3). Histórico de mudanças (`appointment_events`) na Fase 3. Grade ou folga nova **não reescreve** atendimentos existentes (contrato da 1B-2b).
+- Falta de consentimento LGPD só **avisa** (selo existente), nunca bloqueia.
+
+## Como ficou — 2A (núcleo)
+- **Regras puras:**
+  - `wallParts(instante)` em `src/lib/datetime.ts` (data, minuto do dia, segundo e dia da semana de Brasília, sem `-3h` fixo);
+  - `checkSlot` em `src/lib/schedule/availability.ts` (cabe numa única faixa do dia; faixas que só se encostam valem como uma; o vão do almoço não; folga meio-aberta; mesmo dia local, com fim à meia-noite do dia seguinte aceito como 24:00; hora repetida do horário de verão vira `invalid`);
+  - `calendar.ts` (segunda a domingo, janelas de dia e semana em UTC: um dia pode ter 23 h ou 25 h);
+  - `status.ts` (mapa de transições por papel + `blocksSlot`), `labels.ts` e `schemas.ts` (Zod de agendar, remarcar, cancelar, mudar status e filtros da URL, que nunca quebram a tela).
+- **Migrações 0024 a 0025, só no Supabase dev.** 0024 (DDL: `appointments` e `appointment_prices`) e 0025 (à mão: exclusões, gatilho, grants e políticas).
+  - `appointments`: FKs compostas `(professional_id, specialty)` e `(service_id, specialty)` garantem a mesma especialidade (sem FK para `professional_services`, que o `updateProfessional` apaga e recria); CHECKs de duração (5 min a 8 h), passo de 5 min sem segundos, limites 2000–2100 e motivo de cancelamento coerente com o status.
+  - **Exclusões** `appointments_professional_no_overlap` e `appointments_patient_no_overlap` (`tstzrange [)`, `WHERE status <> 'cancelled'`): só a cancelada libera o horário.
+  - **Gatilho `BEFORE UPDATE`** (`SECURITY INVOKER`, `search_path` vazio): impõe o mapa de transições por papel, a regra de horário (Realizada/Falta só depois do início; remarcar só para o futuro e só em aberto, devolvendo para Agendada), carimba quem mudou o status e quando, e impede mexer em chaves, serviço, autor e criação. A sessão sem usuário (dono do banco) não é restringida.
+  - **RLS:** admin lê todos; recepção os de profissional não removido; profissional só os próprios. INSERT só de admin e recepção, `scheduled`, em nome próprio, no futuro, com `created_at`/`updated_at = now()`. UPDATE por coluna (`status, starts_at, ends_at, cancel_reason`). Sem DELETE. `service_role` sem escrita. `aal2` `RESTRICTIVE` nas duas tabelas.
+  - **`appointment_prices`:** sem nenhuma política para o profissional; só `SELECT`/`INSERT`; o valor só nasce na mesma transação do atendimento (`created_at = now()` nos dois).
+- **Camada de dados** (`src/server/appointments/`): `createAppointment` (trava compartilhada `pg_advisory_xact_lock_shared` na chave `work-hours:{id}` → profissional ativo, serviço oferecido e ativo, paciente → início não passado → `checkSlot` → valor → atendimento, valor e vínculo, tudo numa transação), `rescheduleAppointment`, `cancelAppointment`, `changeAppointmentStatus` (pré-checa com o mapa de `status.ts` para dar mensagem clara; o gatilho é a última barreira), `listAppointments` e `getAppointment`. `addTimeOff` passou a tomar a trava **exclusiva** da mesma chave (`scheduleLockKey`), então uma folga nova espera as reservas em andamento.
+- **Ações** (`actions.ts`): `requireRole` antes de ler a entrada; usuário e papel sempre da sessão; mensagem fixa por motivo; o motivo digitado do cancelamento nunca vai a uma mensagem de erro.
+- **Textos:** as mensagens de recusa de troca de especialidade (catálogo e profissionais) passaram a dizer que quem já tem atendimentos não pode trocar.
+
+## Revisões independentes
+- **Migração, RLS e gatilho (2A):** sem achado crítico. Confirmado: o atalho do dono (`auth.uid()` nulo) não é alcançável por uma sessão `authenticated`; o gatilho e o mapa de `status.ts` concordam em todos os pares (180 casos); o valor só nasce na transação do atendimento mesmo em produção (cada chamada é uma transação). **Tratado:** teste que apaga os claims do JWT, atualizações "fora do contrato" do profissional, `upsert` por papel, profissional inativo, paciente removido e troca de especialidade (recusada pelo banco, 23503, agora com mensagem clara).
+- **Aceitos e registrados (revisão do banco):**
+  - O conflito do **paciente** conta atendimentos de profissional removido que a recepção não enxerga: ela descobre isso pelo `23P01` (baixa sensibilidade: é equipe; documentado por teste).
+  - Atendimentos de paciente removido continuam visíveis e canceláveis pela recepção (é operacional; o que some é o nome do paciente), em linha com "não bloquear" desta fase.
+  - Remarcar muda só horário em aberto: não dá para estender o fim de um atendimento já em andamento (`starts_at < now()`).
+  - `scheduled → done` pula `confirmed` e a recepção também marca Realizada/Falta: é intencional (o atendimento sem confirmação prévia) e o TS e o gatilho concordam.
+  - O banco não valida que o valor copiado "bate" com o serviço (o servidor copia; uma linha de valor não pode ser acrescentada depois).
+  - O `cancel_reason` (texto livre) e os autores são legíveis pelo profissional dono da linha (a tela não os mostra a ele).
+- **Aplicação (2A):** sem achado crítico. Confirmado correto: o desenho das travas (a reserva, a folga e a semana usam a mesma chave; exclusiva espera compartilhada) sem ciclo de deadlock entre a trava e as escritas; corridas de cancelar × remarcar caem no `UPDATE` condicionado ao status (`changed`); o valor só nasce na mesma transação do atendimento; o papel nunca vem do formulário; o motivo do cancelamento não vai a nenhuma mensagem de erro. **Importantes corrigidos:** (1) `resolvePrice` ignorava o convênio **inativo**: agora só vale convênio ativo e não removido (e valor removido cai para o particular), com teste dos três casos; (2) duas reservas simultâneas podiam dar deadlock (40P01, nos índices de exclusão) e virar "sistema ocupado": o pedido, que é uma transação sem efeito externo, é refeito **uma vez** e a perdedora devolve o conflito de verdade; (3) `listAppointments` e `getAppointment` recebiam um booleano `staff` do chamador, e uma tela que errasse vazaria o motivo do cancelamento ao profissional: agora recebem o **papel** da sessão (`role`) e derivam a equipe por lista explícita (`isStaffRole`), com teste de que o profissional recebe `null`; (4) remarcar para o mesmo horário uma confirmada devolvia "sem permissão": agora é "nada a mudar" e ela continua confirmada. **Menores corrigidos:** milissegundos no `checkSlot` (o banco exige instantes redondos); mudar para o status em que já está devolve `changed`; o teste da trava usa `scheduleLockKey` e há um teste novo de que **criar espera a folga em andamento** e então enxerga a folga confirmada.
+- **Aceitos e registrados (revisão da aplicação):** o relógio do app e o `now()` do banco podem divergir (o app aceita, o banco recusa com 42501, que ao criar vira `denied`); remarcar não confere se o profissional ainda está ativo (criar confere; remarcar na grade de um inativo pode ser intencional); o `resolvePrice` lê e grava sem trava (uma edição de preço concorrente vale de qualquer jeito); a revalidação de `/pacientes/[id]` ocorre em todo sucesso, inclusive mudanças de status; o teste "nunca repete o motivo" nas ações é fraco por natureza (a mensagem é constante); o `inner join` com `services` esconderia atendimentos se um serviço fosse removido logicamente (o catálogo nunca remove serviço hoje); faltam testes de corrida **criar × cancelar** e **remarcar × folga**.
+
+## Ambiente de teste
+- Os testes de RLS e de dados da agenda usam nomes de profissional e de serviço **únicos por execução** (índices únicos por especialidade e nome; cada arquivo de RLS mantém a transação aberta o arquivo inteiro).
+- A suíte completa subiu para ~137 s (73 arquivos, 1597 testes; antes da agenda eram ~83 s), com três arquivos de banco novos. O `appointments-data.test.ts` sozinho leva ~110 s por causa das idas ao banco remoto; se a suíte pesar demais, o caminho é compartilhar o cenário entre os testes em vez de refazê-lo (`reset()`).

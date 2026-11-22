@@ -4,7 +4,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { WorkRange } from "@/lib/schedule/week";
-import { addTimeOff, removeTimeOff, saveWeek } from "@/server/schedule/mutations";
+import { addTimeOff, removeTimeOff, saveWeek, scheduleLockKey } from "@/server/schedule/mutations";
 import { getScheduleOwner, getWeek, listTimeOff } from "@/server/schedule/queries";
 
 import { assertMigrationTarget } from "./migration-guard";
@@ -229,6 +229,50 @@ describe.skipIf(!hasDb)("camada de dados da grade de horários (integração, Su
       }
       const [row] = await owner`select count(*)::int as n from public.professional_time_off where id = ${id}`;
       expect(row?.n).toBe(1);
+    });
+
+    it("uma folga nova ESPERA as reservas em andamento (trava compartilhada da agenda) e só então grava", async () => {
+      // Uma reserva (Fase 2) toma a trava COMPARTILHADA do profissional antes de ler a grade e as folgas.
+      // A folga nova toma a EXCLUSIVA: espera a reserva terminar, para que nenhuma reserva leia as
+      // folgas, perca a corrida e grave um atendimento em cima da folga que acabou de ser criada.
+      const holder = postgres(process.env.DIRECT_URL ?? "", { prepare: false, max: 1 });
+      let release: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let acquired: () => void = () => {};
+      const lockTaken = new Promise<void>((resolve) => {
+        acquired = resolve;
+      });
+      const reservation = holder.begin(async (tx) => {
+        await tx`select pg_advisory_xact_lock_shared(hashtextextended(${scheduleLockKey(ids.p2)}, 0))`;
+        acquired();
+        await gate;
+      });
+      try {
+        await lockTaken;
+        let settled = false;
+        const pending = addTimeOff(users.admin, {
+          professionalId: ids.p2,
+          startsAt: new Date("2031-03-01T10:00:00Z"),
+          endsAt: new Date("2031-03-01T12:00:00Z"),
+          reason: null,
+        }).then((result) => {
+          settled = true;
+          return result;
+        });
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        expect(settled, "a folga não pode gravar enquanto uma reserva segura a trava").toBe(false);
+
+        release();
+        await reservation;
+        const result = await pending;
+        expect(result.ok).toBe(true);
+      } finally {
+        release();
+        await reservation.catch(() => {});
+        await holder.end({ timeout: 2 });
+      }
     });
 
     it("texto que o banco recusa (byte nulo no motivo) vira 'denied', não exceção", async () => {

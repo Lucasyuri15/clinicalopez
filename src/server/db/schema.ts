@@ -540,3 +540,107 @@ export const patientConsents = pgTable(
     index("patient_consents_patient_idx").on(table.patientId, table.occurredOn, table.createdAt),
   ],
 ).enableRLS();
+
+/**
+ * Atendimentos da agenda (Fase 2). Um atendimento é de UM profissional, UM paciente e UM serviço.
+ * `starts_at`/`ends_at` em UTC (timestamptz), de 5 em 5 minutos e sem segundos, duração de 5 a 480
+ * min. A mesma especialidade de profissional e serviço é garantida pelas FKs compostas (não há FK
+ * para `professional_services`: o `updateProfessional` apaga e recria essa tabela, e uma FK
+ * `restrict` quebraria a edição de profissional com atendimentos; a oferta do serviço é conferida
+ * no servidor, só ao criar).
+ *
+ * O CONFLITO de horário é do banco: as exclusões `appointments_professional_no_overlap` e
+ * `appointments_patient_no_overlap` (btree_gist, na migração SQL: o drizzle-kit não modela exclusão)
+ * impedem dois atendimentos que se sobreponham para o mesmo profissional OU o mesmo paciente. Só a
+ * `cancelled` libera o horário; `done` e `no_show` continuam ocupando (o histórico é verdadeiro).
+ *
+ * Sem DELETE para ninguém: cancelar é o jeito de "apagar" (com motivo). Status, quem mudou e quando
+ * são impostos por um gatilho `BEFORE UPDATE` (o cliente não falsifica). O motivo do cancelamento é
+ * texto livre: nunca vai a log, URL ou erro. O VALOR do atendimento fica em `appointment_prices`.
+ */
+export const appointments = pgTable(
+  "appointments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    professionalId: uuid("professional_id").notNull(),
+    patientId: uuid("patient_id")
+      .notNull()
+      .references(() => patients.id, { onDelete: "restrict" }),
+    serviceId: uuid("service_id").notNull(),
+    specialty: specialty("specialty").notNull(),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    /** `scheduled`, `confirmed`, `done`, `no_show` ou `cancelled`. */
+    status: text("status").notNull().default("scheduled"),
+    cancelReason: text("cancel_reason"),
+    createdBy: uuid("created_by")
+      .notNull()
+      .default(sql`auth.uid()`)
+      .references(() => profiles.id, { onDelete: "restrict" }),
+    statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
+    statusChangedBy: uuid("status_changed_by").references(() => profiles.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "appointments_professional_fk",
+      columns: [table.professionalId, table.specialty],
+      foreignColumns: [professionals.id, professionals.specialty],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "appointments_service_fk",
+      columns: [table.serviceId, table.specialty],
+      foreignColumns: [services.id, services.specialty],
+    }).onDelete("restrict"),
+    check(
+      "appointments_status_check",
+      sql`${table.status} in ('scheduled', 'confirmed', 'done', 'no_show', 'cancelled')`,
+    ),
+    check("appointments_range_check", sql`${table.startsAt} < ${table.endsAt}`),
+    check(
+      "appointments_duration_check",
+      sql`${table.endsAt} - ${table.startsAt} between interval '5 minutes' and interval '8 hours'`,
+    ),
+    // Início e fim de 5 em 5 minutos e sem segundos (os fusos do Brasil são de horas inteiras).
+    check(
+      "appointments_step_check",
+      sql`mod(extract(epoch from ${table.startsAt}), 300) = 0 and mod(extract(epoch from ${table.endsAt}), 300) = 0`,
+    ),
+    check(
+      "appointments_bounds_check",
+      sql`${table.startsAt} >= timestamptz '2000-01-01 00:00:00+00' and ${table.endsAt} < timestamptz '2101-01-01 00:00:00+00'`,
+    ),
+    // Cancelada tem motivo; as demais não.
+    check(
+      "appointments_cancel_reason_check",
+      sql`(${table.status} = 'cancelled') = (${table.cancelReason} is not null)`,
+    ),
+    check("appointments_cancel_reason_format_check", optionalText(table.cancelReason, 200)),
+    index("appointments_starts_idx").on(table.startsAt),
+    index("appointments_patient_idx").on(table.patientId, table.startsAt),
+  ],
+).enableRLS();
+
+/**
+ * Valor do atendimento, COPIADO do serviço ao agendar (convênio do paciente se houver valor, senão o
+ * particular; sem nenhum, não há linha). Tabela própria e SEM política para o profissional: a RLS é
+ * por linha e os três perfis são o mesmo papel de banco, então o que o profissional não pode ver
+ * precisa ser outra tabela (o mesmo desenho de `service_prices`). Sem DELETE.
+ */
+export const appointmentPrices = pgTable(
+  "appointment_prices",
+  {
+    appointmentId: uuid("appointment_id")
+      .primaryKey()
+      .references(() => appointments.id, { onDelete: "restrict" }),
+    priceCents: integer("price_cents").notNull(),
+    /** O convênio do valor copiado; nulo = particular. */
+    insuranceId: uuid("insurance_id").references(() => insurances.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("appointment_prices_price_check", sql`${table.priceCents} between 0 and 10000000`),
+    index("appointment_prices_insurance_idx").on(table.insuranceId),
+  ],
+).enableRLS();

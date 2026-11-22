@@ -152,7 +152,10 @@ describe("saveProfessional", () => {
     ["duplicate-name", "Já existe um profissional com esse nome nessa especialidade."],
     ["duplicate-login", "Este login já está vinculado a outro profissional."],
     ["not-found", "Registro não encontrado. Atualize a página e tente de novo."],
-    ["denied", "Não foi possível salvar. Confira o login e os serviços escolhidos (devem ser da mesma especialidade) e tente de novo."],
+    [
+      "denied",
+      "Não foi possível salvar. Confira o login e os serviços escolhidos (devem ser da mesma especialidade) e tente de novo. Quem já tem atendimentos não pode trocar de especialidade.",
+    ],
   ] as const)("falha '%s' do banco vira mensagem fixa, sem texto técnico, e não revalida", async (reason, message) => {
     mocks.createProfessional.mockResolvedValue({ ok: false, reason });
     const result = await saveProfessional(undefined, professionalForm());

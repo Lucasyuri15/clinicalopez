@@ -159,7 +159,7 @@ describe("saveService: trocar a especialidade de um serviço ligado a profission
     mocks.updateService.mockResolvedValue({ ok: false, reason: "denied" });
     const result = await saveService(undefined, serviceForm({ id: ID }));
     expect(result?.error).toBe(
-      "Não foi possível salvar. Se este serviço já está ligado a profissionais, desligue-o deles antes de trocar a especialidade.",
+      "Não foi possível salvar. Se este serviço já está ligado a profissionais ou a atendimentos, a especialidade não pode ser trocada: desligue-o dos profissionais e, havendo atendimentos, desative-o e crie outro.",
     );
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });

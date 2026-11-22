@@ -64,7 +64,7 @@ export function saveWeek(user: ScheduleUser, input: { professionalId: string; ra
   const { professionalId, ranges } = input;
   return guarded(() =>
     withUser(user, async (tx): Promise<ScheduleResult> => {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`work-hours:${professionalId}`}, 0))`);
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${scheduleLockKey(professionalId)}, 0))`);
 
       const [owner] = await tx
         .select({ id: professionals.id })
@@ -99,13 +99,22 @@ export function saveWeek(user: ScheduleUser, input: { professionalId: string; ra
   );
 }
 
+/**
+ * A chave da trava da agenda de um profissional. `saveWeek` e `addTimeOff` tomam a trava EXCLUSIVA;
+ * uma reserva de atendimento (Fase 2) toma a COMPARTILHADA antes de ler a grade e as folgas. Assim
+ * uma folga nova espera as reservas em andamento e nenhuma reserva grava em cima de uma folga que
+ * acabou de ser criada. Um atendimento que JÁ existe não é reescrito (contrato da 1B-2b).
+ */
+export const scheduleLockKey = (professionalId: string) => `work-hours:${professionalId}`;
+
 export function addTimeOff(
   user: ScheduleUser,
   input: { professionalId: string; startsAt: Date; endsAt: Date; reason: string | null },
 ) {
   return guarded(async () => {
-    const [row] = await withUser(user, (tx) =>
-      tx
+    const [row] = await withUser(user, async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${scheduleLockKey(input.professionalId)}, 0))`);
+      return tx
         .insert(professionalTimeOff)
         .values({
           professionalId: input.professionalId,
@@ -113,8 +122,8 @@ export function addTimeOff(
           endsAt: input.endsAt,
           reason: input.reason,
         })
-        .returning({ id: professionalTimeOff.id }),
-    );
+        .returning({ id: professionalTimeOff.id });
+    });
     return row ? { ok: true, id: row.id } : { ok: false, reason: "denied" };
   });
 }
