@@ -60,6 +60,12 @@ export async function deleteFixtureUsers(): Promise<number> {
   try {
     return await sql.begin(async (tx) => {
       const pattern = `${FIXTURE_PREFIX}%@${FIXTURE_DOMAIN}`;
+      // Atendimentos criados ou alterados por esses usuários referenciam o perfil (FK restrict).
+      await tx`delete from public.appointment_prices where appointment_id in
+        (select id from public.appointments where created_by in (select id from auth.users where email like ${pattern})
+          or status_changed_by in (select id from auth.users where email like ${pattern}))`;
+      await tx`delete from public.appointments where created_by in (select id from auth.users where email like ${pattern})
+        or status_changed_by in (select id from auth.users where email like ${pattern})`;
       // Consentimentos registrados por esses usuários referenciam o perfil (FK restrict).
       await tx`delete from public.patient_consents where registered_by in
         (select id from auth.users where email like ${pattern})`;
@@ -109,6 +115,11 @@ export async function deleteFixtureUser(email: string): Promise<void> {
   const sql = connect();
   try {
     await sql.begin(async (tx) => {
+      await tx`delete from public.appointment_prices where appointment_id in
+        (select id from public.appointments where created_by in (select id from auth.users where email = ${email})
+          or status_changed_by in (select id from auth.users where email = ${email}))`;
+      await tx`delete from public.appointments where created_by in (select id from auth.users where email = ${email})
+        or status_changed_by in (select id from auth.users where email = ${email})`;
       await tx`delete from public.patient_consents where registered_by in
         (select id from auth.users where email = ${email})`;
       await tx`delete from public.profiles where id in (select id from auth.users where email = ${email})`;
@@ -284,6 +295,12 @@ export async function deleteProfessionals(tag: string): Promise<void> {
   try {
     await sql.begin(async (tx) => {
       const like = `${tag}%`;
+      // Atendimentos (e valores) dos profissionais do teste: referenciam o profissional (FK restrict).
+      await tx`delete from public.appointment_prices where appointment_id in
+        (select id from public.appointments where professional_id in
+          (select id from public.professionals where full_name like ${like}))`;
+      await tx`delete from public.appointments where professional_id in
+        (select id from public.professionals where full_name like ${like})`;
       await tx`delete from public.professional_work_hours where professional_id in
         (select id from public.professionals where full_name like ${like})`;
       await tx`delete from public.professional_time_off where professional_id in
@@ -532,7 +549,13 @@ export async function deletePatients(tag: string): Promise<void> {
   try {
     await sql.begin(async (tx) => {
       const like = `${tag}%`;
-      // Consentimentos primeiro: referenciam o paciente (FK restrict).
+      // Atendimentos (e valores) primeiro: referenciam o paciente (FK restrict).
+      await tx`delete from public.appointment_prices where appointment_id in
+        (select id from public.appointments where patient_id in
+          (select id from public.patients where full_name like ${like}))`;
+      await tx`delete from public.appointments where patient_id in
+        (select id from public.patients where full_name like ${like})`;
+      // Consentimentos: referenciam o paciente (FK restrict).
       await tx`delete from public.patient_consents where patient_id in
         (select id from public.patients where full_name like ${like})`;
       await tx`delete from public.patient_professionals where patient_id in
@@ -651,6 +674,109 @@ export async function patientIdByName(name: string): Promise<string> {
     const [row] = await sql`select id from public.patients where full_name = ${name}`;
     if (!row) throw new Error("Paciente fictício não encontrado.");
     return row.id as string;
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Atendimentos da agenda (Fase 2). Só dados FICTÍCIOS, ligados a profissionais, pacientes e
+// serviços etiquetados. A limpeza vem junto de `deletePatients`/`deleteProfessionals` (e dos
+// `deleteFixtureUser(s)`, por `created_by`/`status_changed_by`).
+// ---------------------------------------------------------------------------------------------
+
+const TAGGED_NAME = /^\[e2e-cat [0-9a-f]{8}\] /;
+
+/**
+ * Cria um atendimento como DONO do banco (não passa pela grade nem pelo "início no futuro": serve
+ * para montar um atendimento passado ou um conflito). `createdBy` é o perfil de um usuário
+ * fictício (apagar o usuário apaga o atendimento). `priceCents` cria o valor copiado.
+ */
+export async function seedAppointment(input: {
+  professionalName: string;
+  patientName: string;
+  serviceName: string;
+  startsAt: Date;
+  durationMinutes: number;
+  createdBy: string;
+  status?: "scheduled" | "confirmed" | "done" | "no_show" | "cancelled";
+  cancelReason?: string;
+  priceCents?: number;
+}): Promise<string> {
+  for (const name of [input.professionalName, input.patientName, input.serviceName]) {
+    if (!TAGGED_NAME.test(name)) throw new Error("Recusado: só uso nomes de e2e etiquetados.");
+  }
+  const status = input.status ?? "scheduled";
+  const endsAt = new Date(input.startsAt.getTime() + input.durationMinutes * 60_000);
+  const sql = connect();
+  try {
+    return await sql.begin(async (tx) => {
+      const [professional] = await tx`select id, specialty from public.professionals where full_name = ${input.professionalName}`;
+      const [patient] = await tx`select id from public.patients where full_name = ${input.patientName}`;
+      const [service] = await tx`select id from public.services where name = ${input.serviceName}`;
+      if (!professional || !patient || !service) throw new Error("Dados fictícios do atendimento não encontrados.");
+      const [row] = await tx`insert into public.appointments
+        (professional_id, patient_id, service_id, specialty, starts_at, ends_at, status, cancel_reason, created_by)
+        values (${professional.id}, ${patient.id}, ${service.id}, ${professional.specialty}, ${input.startsAt},
+          ${endsAt}, ${status}, ${status === "cancelled" ? (input.cancelReason ?? "Cancelamento de teste") : null},
+          ${input.createdBy})
+        returning id`;
+      if (input.priceCents !== undefined) {
+        await tx`insert into public.appointment_prices (appointment_id, price_cents) values (${row!.id}, ${input.priceCents})`;
+      }
+      return row!.id as string;
+    });
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+export type AppointmentRow = {
+  patient: string;
+  professional: string;
+  service: string;
+  startsAt: Date;
+  endsAt: Date;
+  status: string;
+  cancelReason: string | null;
+  priceCents: number | null;
+  statusChanged: boolean;
+};
+
+/** Estado REAL gravado dos atendimentos dos profissionais do teste, por horário. */
+export async function appointmentsState(tag: string): Promise<AppointmentRow[]> {
+  if (!/^\[e2e-cat [0-9a-f]{8}\]$/.test(tag)) throw new Error("Recusado: etiqueta de e2e inválida.");
+  const sql = connect();
+  try {
+    const rows = await sql`
+      select pa.full_name as patient, pr.full_name as professional, s.name as service,
+        a.starts_at as "startsAt", a.ends_at as "endsAt", a.status, a.cancel_reason as "cancelReason",
+        (select p.price_cents from public.appointment_prices p where p.appointment_id = a.id) as "priceCents",
+        a.status_changed_by is not null as "statusChanged"
+      from public.appointments a
+      join public.professionals pr on pr.id = a.professional_id
+      join public.patients pa on pa.id = a.patient_id
+      join public.services s on s.id = a.service_id
+      where pr.full_name like ${`${tag}%`}
+      order by a.starts_at, pr.full_name`;
+    return rows as unknown as AppointmentRow[];
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+/** O paciente tem vínculo com o profissional? (agendar cria o vínculo). */
+export async function patientIsLinked(patientName: string, professionalName: string): Promise<boolean> {
+  for (const name of [patientName, professionalName]) {
+    if (!TAGGED_NAME.test(name)) throw new Error("Recusado: só uso nomes de e2e etiquetados.");
+  }
+  const sql = connect();
+  try {
+    const rows = await sql`select 1 from public.patient_professionals pp
+      join public.patients p on p.id = pp.patient_id
+      join public.professionals pr on pr.id = pp.professional_id
+      where p.full_name = ${patientName} and pr.full_name = ${professionalName}`;
+    return rows.length > 0;
   } finally {
     await sql.end({ timeout: 2 });
   }

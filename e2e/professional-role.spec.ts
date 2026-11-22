@@ -1,7 +1,9 @@
 import { expect, type Page } from "@playwright/test";
 
+import { brtDate, brtInstant, esc, nextMonday, pastStart } from "./support/agenda";
 import { readUsers, testAs } from "./support/auth";
 import {
+  appointmentsState,
   catalogTag,
   deleteCatalog,
   deletePatients,
@@ -9,6 +11,7 @@ import {
   patientIdByName,
   professionalIdByName,
   profileIdByEmail,
+  seedAppointment,
   seedConsent,
   seedPatients,
   seedProfessionals,
@@ -184,5 +187,100 @@ asProfessional.describe("perfil profissional: só o próprio cadastro e a própr
     await page.goto("/pacientes/removidos");
     await expect(page).toHaveURL(/\/dashboard/);
     await expect(page.getByText("Pacientes removidos")).toHaveCount(0);
+  });
+
+  /** O perfil do admin fictício do projeto: autor dos atendimentos montados pelo dono do banco. */
+  async function adminProfileId(projectName: string): Promise<string> {
+    return profileIdByEmail(readUsers()[`${projectName}-admin`]?.email ?? "");
+  }
+
+  asProfessional("agenda: vê só os atendimentos dele, sem Agendar, sem filtro, sem valor e sem motivo de cancelamento", async ({ page }, testInfo) => {
+    const createdBy = await adminProfileId(testInfo.project.name);
+    const monday = nextMonday();
+    const secretReason = "Motivo reservado do cancelamento";
+    await seedAppointment({
+      professionalName: seeded.own.name,
+      patientName: patients.own.name,
+      serviceName: seeded.physioService,
+      startsAt: brtInstant(monday, "10:00"),
+      durationMinutes: 50,
+      createdBy,
+      priceCents: 1234567,
+    });
+    await seedAppointment({
+      professionalName: seeded.own.name,
+      patientName: patients.ownForeign.name,
+      serviceName: seeded.physioService,
+      startsAt: brtInstant(monday, "14:00"),
+      durationMinutes: 50,
+      createdBy,
+      status: "cancelled",
+      cancelReason: secretReason,
+    });
+    // atendimento do colega com outro paciente: nada dele pode aparecer
+    await seedAppointment({
+      professionalName: seeded.colleague.name,
+      patientName: patients.other.name,
+      serviceName: `${tag} Limpeza`,
+      startsAt: brtInstant(monday, "10:00"),
+      durationMinutes: 40,
+      createdBy,
+    });
+
+    await page.goto(`/agenda?view=day&date=${monday}`);
+    await expect(page.getByRole("heading", { level: 1, name: "Agenda" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Agendar", exact: true })).toHaveCount(0);
+    await expect(page.getByLabel("Profissional", { exact: true })).toHaveCount(0);
+    const mine = page.getByRole("button", { name: new RegExp(`10:00–10:50, ${esc(patients.own.name)}`) });
+    await expect(mine).toBeVisible();
+    await expect(page.getByRole("button", { name: new RegExp(esc(patients.ownForeign.name)) })).toBeVisible();
+    await expect(page.getByText("Bruno Colega")).toHaveCount(0);
+
+    // nada do colega, nenhum valor e nenhum motivo de cancelamento: nem na tela nem no HTML entregue
+    const html = await page.content();
+    for (const secret of [patients.other.name, "Bruno Colega", `${tag} Limpeza`, secretReason, "12.345,67", "1234567", "12345,67"]) {
+      expect(html, secret).not.toContain(secret);
+    }
+
+    // o atendimento futuro: sem remarcar, cancelar nem confirmar; Realizada e Falta só depois do início
+    await mine.click();
+    let sheet = page.getByRole("dialog");
+    await expect(sheet).toContainText("ficam disponíveis a partir do início");
+    await expect(sheet.getByRole("button", { name: /Remarcar|Cancelar atendimento|Confirmar atendimento|Marcar como realizada|Registrar falta/ })).toHaveCount(0);
+    await sheet.getByRole("button", { name: "Fechar" }).click();
+
+    // o cancelado: o profissional não recebe o motivo
+    await page.getByRole("button", { name: new RegExp(esc(patients.ownForeign.name)) }).click();
+    sheet = page.getByRole("dialog");
+    await expect(sheet).toContainText("Cancelada");
+    await expect(sheet).not.toContainText(secretReason);
+    expect(await page.content(), secretReason).not.toContain(secretReason);
+  });
+
+  asProfessional("agenda: marca Realizada e Falta nos próprios atendimentos (e não corrige depois)", async ({ page }, testInfo) => {
+    const createdBy = await adminProfileId(testInfo.project.name);
+    const past = pastStart();
+    await seedAppointment({
+      professionalName: seeded.own.name,
+      patientName: patients.own.name,
+      serviceName: seeded.physioService,
+      startsAt: past,
+      durationMinutes: 30,
+      createdBy,
+    });
+
+    await page.goto(`/agenda?view=day&date=${brtDate(past)}`);
+    await page.getByRole("button", { name: new RegExp(esc(patients.own.name)) }).click();
+    let sheet = page.getByRole("dialog");
+    await expect(sheet.getByRole("button", { name: /Remarcar|Cancelar atendimento|Confirmar atendimento/ })).toHaveCount(0);
+    await expect(sheet.getByRole("button", { name: "Marcar como realizada" })).toBeVisible();
+    await sheet.getByRole("button", { name: "Registrar falta" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(await appointmentsState(tag)).toMatchObject([{ patient: patients.own.name, status: "no_show", statusChanged: true }]);
+
+    // depois de registrada, só o admin corrige: o profissional não tem mais ação
+    await page.getByRole("button", { name: new RegExp(`${esc(patients.own.name)}.*Falta`) }).click();
+    sheet = page.getByRole("dialog");
+    await expect(sheet.getByRole("button", { name: /Corrigir|Marcar como realizada|Registrar falta/ })).toHaveCount(0);
   });
 });
