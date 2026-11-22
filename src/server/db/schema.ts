@@ -495,3 +495,48 @@ export const patientProfessionals = pgTable(
     index("patient_professionals_professional_idx").on(table.professionalId),
   ],
 ).enableRLS();
+
+/**
+ * Consentimentos LGPD do paciente (1B-3b): histórico SÓ DE INCLUSÃO (sem UPDATE e sem DELETE para
+ * ninguém, nem o admin: a garantia é a ausência do privilégio). O estado atual de cada tipo é o
+ * evento mais recente por (`occurred_on`, `created_at`); a regra mora em `src/lib/patients/consents.ts`.
+ * Só admin e recepção leem e registram; o profissional nunca vê. `occurred_on` é a data REAL do
+ * consentimento (pode ser anterior ao registro, ex.: papel assinado na semana passada) e a tela
+ * não aceita data futura; `created_at` é quando foi registrado. `registered_by` vem de `auth.uid()`
+ * e a política exige que seja o próprio usuário. A nota é texto livre: nunca vai a log nem a erro.
+ */
+export const patientConsents = pgTable(
+  "patient_consents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    patientId: uuid("patient_id")
+      .notNull()
+      .references(() => patients.id, { onDelete: "restrict" }),
+    /** `data_processing` (tratamento de dados) ou `whatsapp` (mensagens por WhatsApp). */
+    kind: text("kind").notNull(),
+    /** `true` = concedeu; `false` = revogou. */
+    granted: boolean("granted").notNull(),
+    /** `patient` ou `guardian` (responsável legal). */
+    givenBy: text("given_by").notNull(),
+    /** `signed_paper`, `verbal` ou `digital`. */
+    method: text("method").notNull(),
+    occurredOn: date("occurred_on", { mode: "string" }).notNull(),
+    note: text("note"),
+    registeredBy: uuid("registered_by")
+      .notNull()
+      .default(sql`auth.uid()`)
+      .references(() => profiles.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("patient_consents_kind_check", sql`${table.kind} in ('data_processing', 'whatsapp')`),
+    check("patient_consents_given_by_check", sql`${table.givenBy} in ('patient', 'guardian')`),
+    check("patient_consents_method_check", sql`${table.method} in ('signed_paper', 'verbal', 'digital')`),
+    check(
+      "patient_consents_occurred_on_check",
+      sql`${table.occurredOn} between date '1900-01-01' and date '2100-12-31'`,
+    ),
+    check("patient_consents_note_check", optionalText(table.note, 300)),
+    index("patient_consents_patient_idx").on(table.patientId, table.occurredOn, table.createdAt),
+  ],
+).enableRLS();

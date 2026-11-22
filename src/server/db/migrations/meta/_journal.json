@@ -148,6 +148,27 @@
       "when": 1795012334108,
       "tag": "0020_patients_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1795324062351,
+      "tag": "0021_patient_consents",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1795324073126,
+      "tag": "0022_patient_consents_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1795324414619,
+      "tag": "0023_patient_consents_hardening",
+      "breakpoints": true
     }
   ]
 }
