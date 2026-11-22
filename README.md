@@ -23,8 +23,10 @@ pnpm exec playwright install chromium
 
 ## Banco de dados (Supabase)
 
-Copie `.env.example` para `.env.local` e preencha `DATABASE_URL`, `DIRECT_URL` e
-`MIGRATION_PROJECT_REF` (nunca versione esse arquivo nem cole os valores em chats ou issues).
+Copie `.env.example` para `.env.local` e preencha `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `DATABASE_URL`, `DIRECT_URL` e `MIGRATION_PROJECT_REF`
+(`CLIENT_IP_HEADER` é opcional). Nunca versione esse arquivo nem cole os valores em chats ou issues.
+Sem as duas variáveis `NEXT_PUBLIC_*` o app não sobe.
 
 ```bash
 pnpm db:generate   # gera migração a partir de src/server/db/schema.ts (--custom para SQL à mão)
@@ -60,6 +62,12 @@ pnpm build
 
 Fase 0 (fundação): layout responsivo com identidade visual e telas provisórias.
 Fase 1A-1: banco no Supabase (dev) com Drizzle, migrações e RLS aplicada.
-Fase 1A-2: login com 2FA, sessão, perfis (RBAC) e proteção das telas. Veja `docs/STATUS.md`.
+Fase 1A-2: login com 2FA, sessão, perfis (RBAC) e proteção das telas.
+Fase 1A-3: CSP com nonce, limite de tentativas de login/2FA, timeout de inatividade (30 min),
+guarda de projeto entre Auth e banco.
+Fase 1B (cadastros), concluída: serviços e convênios, profissionais, grade de horários, pacientes
+e consentimentos LGPD (com a reativação de pacientes removidos). Próxima: Fase 2 (agenda).
+Veja `docs/STATUS.md`.
 
-> Antes de publicar em produção faltam CSP e limite de tentativas de login (1A-3).
+> A `main` segue sem o app até existir o Supabase de produção (ver o checklist em
+> `docs/STATUS.md`).
