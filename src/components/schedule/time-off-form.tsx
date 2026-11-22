@@ -10,7 +10,7 @@ import { addTimeOffAction, type ScheduleFormState } from "@/server/schedule/acti
 
 type State = (NonNullable<ScheduleFormState> & { at?: number }) | undefined;
 
-/** Adicionar uma folga ou bloqueio (só administrador). Datas e horários são os de Brasília. */
+/** Adicionar uma folga ou bloqueio (administrador e recepção). Datas e horários são os de Brasília. */
 export function TimeOffForm({ professionalId }: { professionalId: string }) {
   const [state, action, pending] = useActionState(
     async (previous: State, formData: FormData): Promise<State> => {

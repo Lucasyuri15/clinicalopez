@@ -62,21 +62,30 @@ const actions: Array<[string, () => Promise<unknown>]> = [
   ["removeTimeOffAction", () => removeTimeOffAction(form({ id: OFF }))],
 ];
 
-describe("todas as ações exigem administrador ANTES de qualquer coisa", () => {
-  it.each(actions)("%s: pede requireRole('admin') e, se recusar, não grava nem revalida", async (_name, run) => {
+describe("todas as ações exigem administrador ou recepção ANTES de qualquer coisa", () => {
+  it.each(actions)("%s: pede requireRole('admin', 'reception') e, se recusar, não grava nem revalida", async (_name, run) => {
     mocks.requireRole.mockImplementation(async () => {
       throw new RedirectSignal("/dashboard?acesso=negado");
     });
     await expect(run()).rejects.toBeInstanceOf(RedirectSignal);
-    expect(mocks.requireRole).toHaveBeenCalledWith("admin");
+    // O profissional NÃO está na lista: ele só lê a própria grade.
+    expect(mocks.requireRole).toHaveBeenCalledWith("admin", "reception");
     for (const fn of allMutations) expect(fn).not.toHaveBeenCalled();
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 
-  it.each(actions)("%s: com admin, chama requireRole('admin') e grava", async (_name, run) => {
+  it.each(actions)("%s: com admin, chama requireRole('admin', 'reception') e grava", async (_name, run) => {
     await run();
-    expect(mocks.requireRole).toHaveBeenCalledWith("admin");
+    expect(mocks.requireRole).toHaveBeenCalledWith("admin", "reception");
     expect(allMutations.some((fn) => fn.mock.calls.length > 0)).toBe(true);
+  });
+
+  it.each(actions)("%s: com a recepção, grava com o usuário da SESSÃO (nunca do formulário)", async (_name, run) => {
+    const reception = { userId: "22222222-2222-4222-8222-222222222222", role: "reception", fullName: "Recepcao Ficticia" };
+    mocks.requireRole.mockResolvedValue(reception);
+    await run();
+    const call = allMutations.map((fn) => fn.mock.calls[0]).find(Boolean);
+    expect(call?.[0]).toEqual({ userId: reception.userId });
   });
 });
 

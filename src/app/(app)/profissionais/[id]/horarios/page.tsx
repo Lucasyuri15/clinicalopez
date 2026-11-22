@@ -9,6 +9,7 @@ import { TimeOffForm } from "@/components/schedule/time-off-form";
 import { WeekEditor } from "@/components/schedule/week-editor";
 import { specialtyLabel } from "@/lib/catalog/labels";
 import { describeTimeOff } from "@/lib/schedule/format";
+import { isStaffRole } from "@/lib/appointments/status";
 import { summarizeWeek } from "@/lib/schedule/week";
 import { requirePageAccess } from "@/server/auth/session";
 import { removeTimeOffAction } from "@/server/schedule/actions";
@@ -20,7 +21,8 @@ export default async function SchedulePage(props: PageProps<"/profissionais/[id]
   const user = await requirePageAccess("/profissionais/[id]/horarios");
   const { id } = await props.params;
   const actor = { userId: user.userId };
-  const canEdit = user.role === "admin";
+  // Admin e recepção editam; o profissional só lê (a RLS e as ações repetem a regra).
+  const canEdit = isStaffRole(user.role);
   const isProfessional = user.role === "professional";
 
   // `null` para id inexistente, removido ou que a RLS esconde (o profissional não abre o de um colega).

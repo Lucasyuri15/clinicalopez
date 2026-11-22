@@ -27,7 +27,7 @@ function nextRange(rows: readonly Row[], weekday: number): { start: string; end:
 }
 
 /**
- * Editor da grade semanal (só administrador): por dia, uma ou mais faixas de atendimento; o
+ * Editor da grade semanal (administrador e recepção): por dia, uma ou mais faixas de atendimento; o
  * intervalo é o vão entre faixas. Um só "Salvar" grava a semana inteira (substitui o conjunto).
  * O servidor revalida tudo (formato, 5 em 5 minutos, sobreposição).
  */

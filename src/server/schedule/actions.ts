@@ -12,8 +12,9 @@ import { addTimeOff, removeTimeOff, saveWeek, type ScheduleResult } from "./muta
 
 /**
  * Server Actions da grade de horários. Regras:
- * - TODAS começam com `requireRole("admin")`, antes de ler a entrada (o `proxy` deixa passar o
- *   POST de uma ação: a proteção é daqui; `server-actions-guard.test.ts` confere).
+ * - TODAS começam com `requireRole("admin", "reception")`, antes de ler a entrada: a recepção opera a
+ *   grade no dia a dia; o PROFISSIONAL só lê a própria (o `proxy` deixa passar o POST de uma ação: a
+ *   proteção é daqui; `server-actions-guard.test.ts` confere). O usuário vem sempre da SESSÃO.
  * - Entrada validada com Zod (`src/lib/schedule/schemas.ts`); mensagens fixas em pt-BR, nunca
  *   texto do banco.
  * - Em ERRO devolvem também o que foi digitado (`values`): o React limpa o formulário depois de
@@ -53,12 +54,12 @@ export async function saveWeekAction(
   _prevState: ScheduleFormState,
   formData: FormData,
 ): Promise<ScheduleFormState> {
-  const admin = await requireRole("admin");
+  const staff = await requireRole("admin", "reception");
   const values = { ranges: text(formData, "ranges") };
   const parsed = weekInputSchema.safeParse({ professionalId: text(formData, "professionalId"), ...values });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? MESSAGES.generic, values };
 
-  const result = await saveWeek({ userId: admin.userId }, parsed.data);
+  const result = await saveWeek({ userId: staff.userId }, parsed.data);
   if (!result.ok) return { error: failureMessage(result), values };
 
   revalidateSchedule();
@@ -69,7 +70,7 @@ export async function addTimeOffAction(
   _prevState: ScheduleFormState,
   formData: FormData,
 ): Promise<ScheduleFormState> {
-  const admin = await requireRole("admin");
+  const staff = await requireRole("admin", "reception");
   const values = {
     startDate: text(formData, "startDate"),
     endDate: text(formData, "endDate"),
@@ -81,7 +82,7 @@ export async function addTimeOffAction(
   const parsed = timeOffInputSchema.safeParse({ professionalId: text(formData, "professionalId"), ...values });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? MESSAGES.generic, values };
 
-  const result = await addTimeOff({ userId: admin.userId }, parsed.data);
+  const result = await addTimeOff({ userId: staff.userId }, parsed.data);
   if (!result.ok) return { error: failureMessage(result), values };
 
   revalidateSchedule();
@@ -89,10 +90,10 @@ export async function addTimeOffAction(
 }
 
 export async function removeTimeOffAction(formData: FormData): Promise<void> {
-  const admin = await requireRole("admin");
+  const staff = await requireRole("admin", "reception");
   const parsed = z.guid({ error: ID_MESSAGE }).safeParse(text(formData, "id"));
   if (!parsed.success) return;
-  await removeTimeOff({ userId: admin.userId }, parsed.data);
-  // Atualiza a tela mesmo se o banco recusou (ex.: outro admin removeu antes): mostra o estado real.
+  await removeTimeOff({ userId: staff.userId }, parsed.data);
+  // Atualiza a tela mesmo se o banco recusou (ex.: outra pessoa removeu antes): mostra o estado real.
   revalidateSchedule();
 }
