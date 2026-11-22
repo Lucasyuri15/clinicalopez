@@ -66,6 +66,8 @@ Dashboard e gerenciador de agendamentos de uso **interno** para a clínica **Ló
 - **Agenda por profissional**, com visões dia/semana (e mês) e filtro por especialidade/profissional.
 - **Criar, remarcar e cancelar** agendamentos, com **detecção de conflito** de horário (profissional e paciente) e respeito à grade/bloqueios do profissional.
 - **Status da consulta:** `Agendada → Confirmada → Realizada`, além de `Falta` e `Cancelada` (com motivo).
+  - *Regras decididas (Fase 2):* só a `Cancelada` libera o horário (`Realizada` e `Falta` continuam ocupando); recepção e admin confirmam, marcam Realizada/Falta e cancelam; **o profissional só marca Realizada ou Falta nos próprios atendimentos**; só o admin corrige Realizada ↔ Falta; `Cancelada` é terminal; Realizada e Falta só depois do início do atendimento; remarcar volta o atendimento para `Agendada`.
+  - *Agendar:* o **serviço é obrigatório** e a duração é sugerida pelo serviço, mas ajustável por atendimento; o servidor **sempre recusa** horário fora da grade do profissional ou em folga/bloqueio (sem encaixe) e início no passado; agendar vincula o paciente ao profissional; o valor do serviço (convênio do paciente, senão o particular) é copiado para o atendimento e **nunca é visto pelo profissional**.
 - **Recorrência/pacotes de sessões:** criar séries (ex.: fisioterapia 2x/semana por 10 sessões; psicoterapia semanal), com edição de uma ocorrência ou da série inteira e acompanhamento de sessões realizadas/restantes.
 - **Lista de espera:** registrar pacientes aguardando vaga (profissional/especialidade, preferência de dias/horários) e sugerir/encaixar quando um horário vagar.
 
