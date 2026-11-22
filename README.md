@@ -66,7 +66,9 @@ Fase 1A-2: login com 2FA, sessão, perfis (RBAC) e proteção das telas.
 Fase 1A-3: CSP com nonce, limite de tentativas de login/2FA, timeout de inatividade (30 min),
 guarda de projeto entre Auth e banco.
 Fase 1B (cadastros), concluída: serviços e convênios, profissionais, grade de horários, pacientes
-e consentimentos LGPD (com a reativação de pacientes removidos). Próxima: Fase 2 (agenda).
+e consentimentos LGPD (com a reativação de pacientes removidos).
+Fase 2 (agenda): núcleo (conflito de horário no banco, status por papel) e telas de dia e semana, concluídos
+na branch da 2B. Próxima: Fase 3 (recorrência e lista de espera).
 Veja `docs/STATUS.md`.
 
 > A `main` segue sem o app até existir o Supabase de produção (ver o checklist em

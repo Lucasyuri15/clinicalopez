@@ -18,9 +18,11 @@ Spec: `docs/specs/2026-11-22-fase-2-agenda.md`. Duas entregas, cada uma termina 
 - [x] **T13** `actions.ts` + testes (verificado por mutação: sem `requireRole`, 4 testes falham).
 - [~] **T14** Docs e revisão final da 2A: spec e plano feitos; revisão da aplicação em andamento; falta atualizar `AGENTS.md`, `STATUS.md` e `PRD.md`.
 
-## 2B — Telas (próxima entrega)
-- [ ] **T15** Componentes de dia, semana e filtros (`src/components/agenda/*`).
-- [ ] **T16** Gavetas de agendar/remarcar e de detalhe (cancelar e mudar status).
-- [ ] **T17** `src/app/(app)/agenda/page.tsx` e testes de acesso por papel.
-- [ ] **T18** Limpeza do e2e (`appointment_prices` e `appointments` antes de pacientes, profissionais e catálogo; em `deleteFixtureUser(s)` por `created_by` e `status_changed_by`) e `e2e/appointments.spec.ts`.
-- [ ] **T19** Docs (`AGENTS`, `STATUS`, `PRD`), revisão final e conferência no navegador (desktop e celular).
+## 2B — Telas (branch `feat/fase-2b-agenda-telas`)
+- [x] **T15** Funções puras: `href`, `grouping`, `form-values`, `actions-available`, `headings`, `grid-hint`, `statusActionLabel` (+ testes).
+- [x] **T16** `appointment-status-badge`, `agenda-toolbar`, `day-view`, `week-view`.
+- [x] **T17** `appointment-card` e `appointment-sheet` (status, remarcar, cancelar).
+- [x] **T18** `patient-picker` e `appointment-form-sheet`.
+- [x] **T19** `src/app/(app)/agenda/page.tsx` (o teste-guarda de páginas `page-access.test.ts` já cobre `requirePageAccess("/agenda")`).
+- [x] **T20** e2e: limpeza dos atendimentos antes de pacientes, profissionais e usuários (`e2e/support/db.ts`), `seedAppointment`, `appointmentsState`, `e2e/appointments.spec.ts` (admin e recepção) e os testes do profissional no arquivo serial `professional-role.spec.ts`.
+- [x] **T21** Docs e revisão independente das telas (achados tratados na spec).
