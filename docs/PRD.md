@@ -63,7 +63,7 @@ Dashboard e gerenciador de agendamentos de uso **interno** para a clínica **Ló
 - **Usuários:** vinculados a um perfil (RBAC); profissionais vinculados ao cadastro de profissional.
 
 ### 4.2 Agendamento
-- **Agenda por profissional**, com visões dia/semana (e mês) e filtro por especialidade/profissional.
+- **Agenda por profissional**, com visões dia/semana (e mês) e filtro por especialidade/profissional. *(Fase 2B: dia e semana entregues, com filtros na URL; a visão mensal fica para depois.)*
 - **Criar, remarcar e cancelar** agendamentos, com **detecção de conflito** de horário (profissional e paciente) e respeito à grade/bloqueios do profissional.
 - **Status da consulta:** `Agendada → Confirmada → Realizada`, além de `Falta` e `Cancelada` (com motivo).
   - *Regras decididas (Fase 2):* só a `Cancelada` libera o horário (`Realizada` e `Falta` continuam ocupando); recepção e admin confirmam, marcam Realizada/Falta e cancelam; **o profissional só marca Realizada ou Falta nos próprios atendimentos**; só o admin corrige Realizada ↔ Falta; `Cancelada` é terminal; Realizada e Falta só depois do início do atendimento; remarcar volta o atendimento para `Agendada`.
