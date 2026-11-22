@@ -1,6 +1,7 @@
 import "server-only";
 
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { z } from "zod";
 
 import type { PatientInput } from "@/lib/patients/schemas";
 import { pgConstraintName, pgErrorCode, withoutQueryDetails } from "@/server/db/pg-error";
@@ -188,6 +189,26 @@ export function setPatientActive(user: PatientUser, patientId: string, active: b
         .update(patients)
         .set({ active })
         .where(and(eq(patients.id, patientId), isNull(patients.deletedAt)))
+        .returning({ id: patients.id }),
+    );
+    return rows[0] ? { ok: true, id: rows[0].id } : { ok: false, reason: "not-found" };
+  });
+}
+
+/**
+ * Reativa um paciente removido (`deleted_at` volta a nulo): só o admin consegue (a política de
+ * UPDATE da recepção exige `deleted_at` nulo e ela nem enxerga removidos, então para ela nada é
+ * afetado: `not-found`). O cadastro volta como estava: CPF, dados administrativos, vínculos e o
+ * histórico de consentimentos nunca saíram do banco. `not-found` também para quem não está removido.
+ */
+export function restorePatient(user: PatientUser, patientId: string) {
+  return guarded(async () => {
+    if (!z.guid().safeParse(patientId).success) return { ok: false, reason: "not-found" };
+    const rows = await withUser(user, (tx) =>
+      tx
+        .update(patients)
+        .set({ deletedAt: null })
+        .where(and(eq(patients.id, patientId), isNotNull(patients.deletedAt)))
         .returning({ id: patients.id }),
     );
     return rows[0] ? { ok: true, id: rows[0].id } : { ok: false, reason: "not-found" };

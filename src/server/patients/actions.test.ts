@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   updatePatient: vi.fn(),
   setPatientActive: vi.fn(),
   removePatient: vi.fn(),
+  restorePatient: vi.fn(),
 }));
 
 class RedirectSignal extends Error {
@@ -30,9 +31,16 @@ vi.mock("./mutations", () => ({
   updatePatient: mocks.updatePatient,
   setPatientActive: mocks.setPatientActive,
   removePatient: mocks.removePatient,
+  restorePatient: mocks.restorePatient,
 }));
 
-import { removePatientAction, savePatient, searchPatients, setPatientActiveAction } from "./actions";
+import {
+  removePatientAction,
+  restorePatientAction,
+  savePatient,
+  searchPatients,
+  setPatientActiveAction,
+} from "./actions";
 
 const ADMIN = { userId: "11111111-1111-4111-8111-111111111111", role: "admin", fullName: "Admin Ficticio" };
 const RECEPTION = { userId: "22222222-2222-4222-8222-222222222222", role: "reception", fullName: "Recepcao Ficticia" };
@@ -74,7 +82,13 @@ const patientForm = (over: Record<string, string | string[]> = {}) =>
     ...over,
   });
 
-const allMutations = [mocks.createPatient, mocks.updatePatient, mocks.setPatientActive, mocks.removePatient];
+const allMutations = [
+  mocks.createPatient,
+  mocks.updatePatient,
+  mocks.setPatientActive,
+  mocks.removePatient,
+  mocks.restorePatient,
+];
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -86,6 +100,7 @@ const actions: Array<[string, () => Promise<unknown>, string[]]> = [
   ["savePatient", () => savePatient(undefined, patientForm()), ["admin", "reception"]],
   ["setPatientActiveAction", () => setPatientActiveAction(form({ id: ID, active: "false" })), ["admin", "reception"]],
   ["removePatientAction", () => removePatientAction(form({ id: ID })), ["admin"]],
+  ["restorePatientAction", () => restorePatientAction(form({ id: ID })), ["admin"]],
 ];
 
 describe("todas as ações exigem o papel certo ANTES de qualquer coisa", () => {
@@ -200,6 +215,38 @@ describe("setPatientActiveAction", () => {
   });
 });
 
+describe("restorePatientAction (reativar paciente removido: só o admin)", () => {
+  beforeEach(() => {
+    mocks.requireRole.mockResolvedValue(ADMIN);
+  });
+
+  it("reativa com o usuário da SESSÃO e o id validado, e atualiza as telas de pacientes", async () => {
+    await restorePatientAction(form({ id: ID.toUpperCase(), userId: RECEPTION.userId }));
+    expect(mocks.restorePatient).toHaveBeenCalledTimes(1);
+    expect(mocks.restorePatient).toHaveBeenCalledWith({ userId: ADMIN.userId }, ID.toUpperCase());
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/pacientes");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/pacientes/removidos");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/pacientes/[id]", "page");
+  });
+
+  it("id inválido ou ausente não chega ao banco", async () => {
+    await restorePatientAction(form({ id: "não-é-uuid" }));
+    await restorePatientAction(form({}));
+    expect(mocks.restorePatient).not.toHaveBeenCalled();
+  });
+
+  it("mesmo se o banco não reativar (outro admin reativou antes), mostra o estado real", async () => {
+    mocks.restorePatient.mockResolvedValue({ ok: false, reason: "not-found" });
+    await restorePatientAction(form({ id: ID }));
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/pacientes/removidos");
+  });
+
+  it("remover um paciente também atualiza a lista de removidos", async () => {
+    await removePatientAction(form({ id: ID }));
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/pacientes/removidos");
+  });
+});
+
 describe("searchPatients (a busca vai por POST: o termo, que pode ser um CPF, nunca fica na URL)", () => {
   const PROFESSIONAL = { userId: "44444444-4444-4444-8444-444444444444", role: "professional", fullName: "Prof Ficticio" };
   const item = { id: ID, fullName: "Maria", birthDate: "1990-05-10", phone: null, email: null, active: true };
@@ -221,13 +268,21 @@ describe("searchPatients (a busca vai por POST: o termo, que pode ser um CPF, nu
   it("busca com o usuário da SESSÃO (o profissional também busca, mas só vê os dele por RLS) e devolve termo e lista", async () => {
     mocks.requirePageAccess.mockResolvedValue(PROFESSIONAL);
     const result = await searchPatients(undefined, form({ q: "maria", userId: RECEPTION.userId }));
-    expect(mocks.listPatients).toHaveBeenCalledWith({ userId: PROFESSIONAL.userId }, { search: "maria" });
+    expect(mocks.listPatients).toHaveBeenCalledWith({ userId: PROFESSIONAL.userId }, { search: "maria", staff: false });
     expect(result).toEqual({ term: "maria", items: [item], truncated: false });
+  });
+
+  it("o aviso de consentimento só é pedido para admin e recepção (staff), nunca para o profissional", async () => {
+    for (const [user, staff] of [[ADMIN, true], [RECEPTION, true], [PROFESSIONAL, false]] as const) {
+      mocks.requirePageAccess.mockResolvedValue(user);
+      await searchPatients(undefined, form({ q: "maria" }));
+      expect(mocks.listPatients.mock.calls.at(-1)![1]).toEqual({ search: "maria", staff });
+    }
   });
 
   it("termo vazio ou ausente devolve a lista padrão; termo gigante é cortado em 100 caracteres", async () => {
     await searchPatients(undefined, form({}));
-    expect(mocks.listPatients).toHaveBeenLastCalledWith({ userId: RECEPTION.userId }, { search: "" });
+    expect(mocks.listPatients).toHaveBeenLastCalledWith({ userId: RECEPTION.userId }, { search: "", staff: true });
     await searchPatients(undefined, form({ q: "a".repeat(500) }));
     expect(mocks.listPatients.mock.calls.at(-1)![1].search).toHaveLength(100);
   });

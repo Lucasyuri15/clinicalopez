@@ -1,0 +1,12 @@
+# Plano — Fase 1B-3b: Consentimentos LGPD e reativar paciente removido
+
+Spec: `docs/specs/2026-11-22-fase-1b3b-consentimentos.md`. Branch: `feat/fase-1b3b-consentimentos` (a partir da `dev` em `254d464`). TDD (RED → GREEN → REFACTOR). Verificação por tarefa: `corepack pnpm lint && corepack pnpm typecheck && corepack pnpm test <alvo>`.
+
+- [x] **T1 — Regras puras.** `src/lib/patients/consents.ts` (+ `.test.ts`, 18 testes): tipos, rótulos pt-BR, schema Zod do evento (`createConsentInputSchema(today)`), `currentConsents(events)` e regra do selo.
+- [x] **T2 — Schema, migrações e RLS.** `schema.ts` (`patientConsents`), migrações **0021** (gerada), **0022** (`--custom`: grants e políticas) e **0023** (endurecimento da revisão: ver a spec), `src/server/db/patient-consents-rls.test.ts` (por perfil, `aal1`, `UPDATE`/`DELETE`/`TRUNCATE` negados, `registered_by` e `created_at` falsificados, recepção em removido, catálogo). Revisão independente feita.
+- [x] **T3 — Camada de dados.** `consent-queries.ts` e `consent-mutations.ts` (+ `src/server/db/consents-data.test.ts`, pelo caminho real `app_backend`).
+- [x] **T4 — Server Actions.** `consent-actions.ts` (+ testes): papéis, validação, usuário sempre da sessão. Verificado por mutação (sem `requireRole`, 2 testes falham).
+- [x] **T5 — UI.** `consent-card.tsx`, `consent-sheet.tsx`, `consent-badge.tsx`, selo na lista e no detalhe; profissional não vê. **Desvio:** o selo da lista vem de `listPatients(..., { staff })` na mesma transação (a busca por Server Action também), não de uma segunda consulta.
+- [x] **T6 — Reativar.** `listRemovedPatients`, `restorePatient`, `restorePatientAction`, página `/pacientes/removidos`, link só para o admin, testes. **Desvio:** o acesso só do admin vem de uma exceção por sub-rota na matriz (`SUBROUTE_ACCESS` em `src/lib/auth/access.ts`), então `requirePageAccess` já barra recepção e profissional; não há `requireRole` solto na página.
+- [~] **T7 — e2e.** Escritos: `e2e/patient-consents.spec.ts`, um teste novo em `e2e/professional-role.spec.ts` e auxiliares em `e2e/support/db.ts` (limpeza de consentimentos antes de pacientes e perfis). **NÃO executados:** o relógio do Windows está ~99 s atrasado e o TOTP do login é recusado. Sincronizar o relógio e rodar `pnpm test:e2e`.
+- [~] **T8 — Fechamento.** Docs e revisão final feitas; `lint`, `typecheck`, `test` (65 arquivos, 1280 testes) e `build` verdes. Falta o `test:e2e` e a conferência no navegador (desktop e celular).

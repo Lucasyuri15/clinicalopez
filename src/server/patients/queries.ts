@@ -1,11 +1,13 @@
 import "server-only";
 
-import { and, asc, eq, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import { patientPrivate, patientProfessionals, patients } from "@/server/db/schema";
 import { withoutQueryDetails } from "@/server/db/pg-error";
 import { withUser } from "@/server/db/with-user";
+
+import { lackingDataConsentIn } from "./consent-queries";
 
 /**
  * Consultas de pacientes. Todas passam por `withUser` (RLS de verdade): o admin recebe todos; a
@@ -28,6 +30,12 @@ export type PatientListItem = {
   phone: string | null;
   email: string | null;
   active: boolean;
+  /**
+   * Aviso: falta o consentimento LGPD de tratamento de dados (nunca registrado ou revogado). Só
+   * existe quando a lista é pedida por admin ou recepção (`staff`); para o profissional o campo nem
+   * aparece (ele não vê consentimento nenhum).
+   */
+  lacksDataConsent?: boolean;
 };
 
 /** Dados administrativos: só admin e recepção (para o profissional a RLS não devolve linha). */
@@ -58,7 +66,18 @@ export type PatientDetail = PatientListItem & {
   professionalIds: string[];
 };
 
+/** Paciente removido, para a tela de reativação (só o admin os vê: a RLS esconde dos demais). */
+export type RemovedPatientItem = {
+  id: string;
+  fullName: string;
+  /** "AAAA-MM-DD". */
+  birthDate: string;
+  deletedAt: Date;
+};
+
 export const DEFAULT_LIST_LIMIT = 50;
+/** Teto da lista de removidos (uma clínica familiar tem poucos); evita uma consulta sem limite. */
+export const REMOVED_LIST_LIMIT = 200;
 
 /** Falha inesperada do banco sem a consulta e os parâmetros (CPF, termo de busca) no erro/log. */
 async function guarded<T>(run: () => Promise<T>): Promise<T> {
@@ -108,7 +127,7 @@ const folded = (column: SQL | typeof patients.fullName) =>
  */
 export async function listPatients(
   user: PatientUser,
-  options: { search?: string; limit?: number } = {},
+  options: { search?: string; limit?: number; staff?: boolean } = {},
 ): Promise<{ items: PatientListItem[]; truncated: boolean }> {
   const limit = Math.max(1, Math.min(options.limit ?? DEFAULT_LIST_LIMIT, 200));
   // Sem controles (o Postgres recusa o byte nulo) e com espaços juntados, como os nomes gravados.
@@ -132,7 +151,39 @@ export async function listPatients(
       .where(and(isNull(patients.deletedAt), term === "" ? undefined : or(byName, byCpf)))
       .orderBy(asc(sql`lower(${patients.fullName})`), asc(patients.id))
       .limit(limit + 1);
-    return { items: rows.slice(0, limit), truncated: rows.length > limit };
+    const items = rows.slice(0, limit);
+    // O aviso de consentimento só vale para admin e recepção (`staff`): para o profissional a RLS
+    // devolveria vazio e todos pareceriam sem consentimento, então nem se consulta.
+    if (options.staff) {
+      const lacking = new Set(await lackingDataConsentIn(tx, items.map((item) => item.id)));
+      return {
+        items: items.map((item) => ({ ...item, lacksDataConsent: lacking.has(item.id) })),
+        truncated: rows.length > limit,
+      };
+    }
+    return { items, truncated: rows.length > limit };
+  }));
+}
+
+/**
+ * Pacientes REMOVIDOS (soft delete), o removido há menos tempo primeiro. Só o admin recebe linhas: a
+ * RLS esconde removidos da recepção e do profissional, e a tela/ação ainda exige o admin. Só o
+ * clínico-básico mínimo (nome e nascimento): CPF e demais dados continuam na ficha.
+ */
+export async function listRemovedPatients(user: PatientUser): Promise<RemovedPatientItem[]> {
+  return guarded(() => withUser(user, async (tx) => {
+    const rows = await tx
+      .select({
+        id: patients.id,
+        fullName: patients.fullName,
+        birthDate: patients.birthDate,
+        deletedAt: patients.deletedAt,
+      })
+      .from(patients)
+      .where(isNotNull(patients.deletedAt))
+      .orderBy(desc(patients.deletedAt), asc(patients.id))
+      .limit(REMOVED_LIST_LIMIT);
+    return rows.flatMap((row) => (row.deletedAt ? [{ ...row, deletedAt: row.deletedAt }] : []));
   }));
 }
 

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { PatientDirectory } from "@/components/patients/patient-directory";
 import { todayBR } from "@/lib/datetime";
@@ -18,7 +19,8 @@ export default async function PacientesPage() {
   const today = todayBR();
 
   const [initial, professionals, insurances] = await Promise.all([
-    listPatients(actor),
+    // Lista explícita: o aviso de consentimento é só de admin e recepção (um papel novo nasce sem vê-lo).
+    listPatients(actor, { staff: user.role === "admin" || user.role === "reception" }),
     canEdit ? listProfessionals(actor) : [],
     canEdit ? listInsurances(actor) : [],
   ]);
@@ -34,6 +36,12 @@ export default async function PacientesPage() {
               : "Os pacientes vinculados a você. Os dados administrativos ficam com a recepção."}
           </p>
         </div>
+        {/* Só o admin: removidos são invisíveis para os demais (RLS), então o link nem aparece. */}
+        {user.role === "admin" ? (
+          <Link href="/pacientes/removidos" className="text-sm text-muted-foreground underline-offset-4 hover:underline">
+            Pacientes removidos
+          </Link>
+        ) : null}
       </header>
 
       <PatientDirectory

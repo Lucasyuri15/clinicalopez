@@ -13,6 +13,7 @@ import type { CatalogFormState } from "@/server/catalog/actions";
 import {
   createPatient,
   removePatient,
+  restorePatient,
   setPatientActive,
   updatePatient,
   type PatientResult,
@@ -86,6 +87,7 @@ const FIELDS = [
 
 function revalidatePatients() {
   revalidatePath("/pacientes");
+  revalidatePath("/pacientes/removidos");
   revalidatePath("/pacientes/[id]", "page");
 }
 
@@ -138,7 +140,12 @@ export async function searchPatients(
 ): Promise<PatientSearchState> {
   const user = await requirePageAccess("/pacientes");
   const term = text(formData, "q").slice(0, SEARCH_MAX);
-  const result = await listPatients({ userId: user.userId }, { search: term });
+  // `staff` (admin ou recepção): só eles recebem o aviso de consentimento; o profissional nunca.
+  // Lista explícita (e não "diferente de profissional"): um papel novo nasce SEM ver consentimento.
+  const result = await listPatients(
+    { userId: user.userId },
+    { search: term, staff: user.role === "admin" || user.role === "reception" },
+  );
   return { term, ...result };
 }
 
@@ -157,6 +164,19 @@ export async function setPatientActiveAction(formData: FormData): Promise<void> 
 }
 
 const removeSchema = z.object({ id: z.guid({ error: ID_MESSAGE }) });
+
+/**
+ * Reativa um paciente removido: SÓ o admin (a recepção nem enxerga removidos, e a RLS barra a
+ * escrita). O cadastro volta como estava, com CPF e histórico de consentimentos.
+ */
+export async function restorePatientAction(formData: FormData): Promise<void> {
+  const admin = await requireRole("admin");
+  const parsed = removeSchema.safeParse({ id: text(formData, "id") });
+  if (!parsed.success) return;
+  await restorePatient({ userId: admin.userId }, parsed.data.id);
+  // Atualiza a tela mesmo se o banco não reativou (ex.: outro admin reativou antes): mostra o estado real.
+  revalidatePatients();
+}
 
 /** Remoção lógica: SÓ o admin (a recepção não remove, nem por chamada direta). */
 export async function removePatientAction(formData: FormData): Promise<void> {

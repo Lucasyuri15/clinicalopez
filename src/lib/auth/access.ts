@@ -19,6 +19,16 @@ const SCREEN_ACCESS: ReadonlyMap<string, readonly UserRole[]> = new Map([
   ["configuracoes", ["admin"]],
 ]);
 
+/**
+ * Exceções por sub-rota: valem ANTES da regra da seção (a mais específica ganha). Só restringem
+ * (a sub-rota é mais fechada que a seção): a seção continua aberta aos seus perfis para o resto.
+ * Casam o caminho exato ou o que vem depois de uma barra ("/pacientes/removidosx" não casa).
+ */
+const SUBROUTE_ACCESS: ReadonlyMap<string, readonly UserRole[]> = new Map([
+  // Reativar paciente removido: só o admin (a recepção e o profissional nem veem removidos, pela RLS).
+  ["/pacientes/removidos", ["admin"]],
+]);
+
 const ROLE_LABELS: Record<UserRole, string> = {
   admin: "Administrador",
   reception: "Recepção",
@@ -38,7 +48,11 @@ export function normalizePath(pathname: string): string {
 
 export function canAccess(role: UserRole | undefined, pathname: string): boolean {
   if (!role) return false;
-  const section = normalizePath(pathname).split("/")[1] ?? "";
+  const path = normalizePath(pathname);
+  for (const [prefix, roles] of SUBROUTE_ACCESS) {
+    if (path === prefix || path.startsWith(`${prefix}/`)) return roles.includes(role);
+  }
+  const section = path.split("/")[1] ?? "";
   return SCREEN_ACCESS.get(section)?.includes(role) ?? false;
 }
 

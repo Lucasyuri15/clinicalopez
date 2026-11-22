@@ -56,6 +56,24 @@ describe("canAccess (matriz de acesso por tela)", () => {
     expect(canAccess("admin", "/")).toBe(false);
   });
 
+  it("/pacientes/removidos é só do admin; o resto de Pacientes segue aberto aos três perfis", () => {
+    for (const path of ["/pacientes/removidos", "/pacientes/removidos/", "/pacientes/removidos?x=1", "/pacientes/removidos/abc"]) {
+      expect(canAccess("admin", path), path).toBe(true);
+      expect(canAccess("reception", path), path).toBe(false);
+      expect(canAccess("professional", path), path).toBe(false);
+    }
+    expect(canAccess(undefined, "/pacientes/removidos")).toBe(false);
+    for (const role of ["admin", "reception", "professional"] as const) {
+      expect(canAccess(role, "/pacientes"), role).toBe(true);
+      expect(canAccess(role, "/pacientes/6f1c1b5e-8a3f-4a0e-9d57-2f6c5f0b7a11"), role).toBe(true);
+    }
+  });
+
+  it("a exceção de sub-rota não confunde prefixos parecidos", () => {
+    expect(canAccess("reception", "/pacientes/removidosx")).toBe(true);
+    expect(canAccess("reception", "/pacientes/removidos-antigos")).toBe(true);
+  });
+
   it("não confunde prefixos parecidos", () => {
     expect(canAccess("admin", "/dashboard-evil")).toBe(false);
     expect(canAccess("reception", "/pacientesx")).toBe(false);
