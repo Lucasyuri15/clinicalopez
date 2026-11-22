@@ -65,8 +65,9 @@ Fase 1A-1: banco no Supabase (dev) com Drizzle, migrações e RLS aplicada.
 Fase 1A-2: login com 2FA, sessão, perfis (RBAC) e proteção das telas.
 Fase 1A-3: CSP com nonce, limite de tentativas de login/2FA, timeout de inatividade (30 min),
 guarda de projeto entre Auth e banco.
-Fase 1B (cadastros), em andamento: serviços e convênios, profissionais, grade de horários e
-pacientes (cadastro). Falta a 1B-3b (consentimentos LGPD). Veja `docs/STATUS.md`.
+Fase 1B (cadastros), concluída: serviços e convênios, profissionais, grade de horários, pacientes
+e consentimentos LGPD (com a reativação de pacientes removidos). Próxima: Fase 2 (agenda).
+Veja `docs/STATUS.md`.
 
 > A `main` segue sem o app até existir o Supabase de produção (ver o checklist em
 > `docs/STATUS.md`).
