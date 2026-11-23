@@ -204,6 +204,41 @@
       "when": 1795442566718,
       "tag": "0028_appointment_series_access",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1795449753164,
+      "tag": "0029_waitlist_entries",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1795449758654,
+      "tag": "0030_waitlist_entries_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1795450013373,
+      "tag": "0031_waitlist_update_professional_guard",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1795452076636,
+      "tag": "0032_waitlist_integrity",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1795452076900,
+      "tag": "0033_waitlist_fulfil_guard",
+      "breakpoints": true
     }
   ]
 }
