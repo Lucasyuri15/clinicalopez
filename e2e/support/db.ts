@@ -60,6 +60,10 @@ export async function deleteFixtureUsers(): Promise<number> {
   try {
     return await sql.begin(async (tx) => {
       const pattern = `${FIXTURE_PREFIX}%@${FIXTURE_DOMAIN}`;
+      // Esperas criadas ou encerradas por esses usuários: referenciam o perfil (FK restrict) e o
+      // atendimento (FK restrict), então saem ANTES dos atendimentos.
+      await tx`delete from public.waitlist_entries where created_by in (select id from auth.users where email like ${pattern})
+        or closed_by in (select id from auth.users where email like ${pattern})`;
       // Atendimentos criados ou alterados por esses usuários referenciam o perfil (FK restrict).
       await tx`delete from public.appointment_prices where appointment_id in
         (select id from public.appointments where created_by in (select id from auth.users where email like ${pattern})
@@ -115,6 +119,8 @@ export async function deleteFixtureUser(email: string): Promise<void> {
   const sql = connect();
   try {
     await sql.begin(async (tx) => {
+      await tx`delete from public.waitlist_entries where created_by in (select id from auth.users where email = ${email})
+        or closed_by in (select id from auth.users where email = ${email})`;
       await tx`delete from public.appointment_prices where appointment_id in
         (select id from public.appointments where created_by in (select id from auth.users where email = ${email})
           or status_changed_by in (select id from auth.users where email = ${email}))`;
@@ -186,6 +192,7 @@ export async function deleteCatalog(tag: string): Promise<void> {
   try {
     await sql.begin(async (tx) => {
       const like = `${tag}%`;
+      await tx`delete from public.waitlist_entries where service_id in (select id from public.services where name like ${like})`;
       await tx`delete from public.service_prices
         where service_id in (select id from public.services where name like ${like})
            or insurance_id in (select id from public.insurances where name like ${like})`;
@@ -295,6 +302,9 @@ export async function deleteProfessionals(tag: string): Promise<void> {
   try {
     await sql.begin(async (tx) => {
       const like = `${tag}%`;
+      // Esperas que pedem um profissional do teste: referenciam o profissional e o atendimento (FK restrict).
+      await tx`delete from public.waitlist_entries where professional_id in
+        (select id from public.professionals where full_name like ${like})`;
       // Atendimentos (e valores) dos profissionais do teste: referenciam o profissional (FK restrict).
       await tx`delete from public.appointment_prices where appointment_id in
         (select id from public.appointments where professional_id in
@@ -549,6 +559,9 @@ export async function deletePatients(tag: string): Promise<void> {
   try {
     await sql.begin(async (tx) => {
       const like = `${tag}%`;
+      // Esperas primeiro: referenciam o paciente e o atendimento (FK restrict).
+      await tx`delete from public.waitlist_entries where patient_id in
+        (select id from public.patients where full_name like ${like})`;
       // Atendimentos (e valores) primeiro: referenciam o paciente (FK restrict).
       await tx`delete from public.appointment_prices where appointment_id in
         (select id from public.appointments where patient_id in
@@ -847,6 +860,39 @@ export async function patientIsLinked(patientName: string, professionalName: str
       join public.professionals pr on pr.id = pp.professional_id
       where p.full_name = ${patientName} and pr.full_name = ${professionalName}`;
     return rows.length > 0;
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+export type WaitlistRow = {
+  patient: string;
+  service: string;
+  professional: string | null;
+  status: "waiting" | "fulfilled" | "removed";
+  weekdays: number[];
+  startMinute: number | null;
+  endMinute: number | null;
+  note: string | null;
+  hasClosedStamp: boolean;
+};
+
+/** Estado REAL gravado da lista de espera dos pacientes do teste (para provar o que a tela gravou). */
+export async function waitlistState(tag: string): Promise<WaitlistRow[]> {
+  if (!/^\[e2e-cat [0-9a-f]{8}\]$/.test(tag)) throw new Error("Recusado: etiqueta de e2e inválida.");
+  const sql = connect();
+  try {
+    const rows = await sql`
+      select pa.full_name as patient, s.name as service, pr.full_name as professional, w.status,
+        w.weekdays, w.start_minute as "startMinute", w.end_minute as "endMinute", w.note,
+        (w.closed_at is not null and w.closed_by is not null) as "hasClosedStamp"
+      from public.waitlist_entries w
+      join public.patients pa on pa.id = w.patient_id
+      join public.services s on s.id = w.service_id
+      left join public.professionals pr on pr.id = w.professional_id
+      where pa.full_name like ${`${tag}%`}
+      order by w.created_at, pa.full_name`;
+    return rows as unknown as WaitlistRow[];
   } finally {
     await sql.end({ timeout: 2 });
   }

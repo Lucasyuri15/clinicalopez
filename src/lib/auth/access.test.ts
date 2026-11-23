@@ -6,6 +6,7 @@ describe("canAccess (matriz de acesso por tela)", () => {
   const SECTIONS = [
     "/dashboard",
     "/agenda",
+    "/lista-espera",
     "/pacientes",
     "/profissionais",
     "/servicos",
@@ -18,10 +19,18 @@ describe("canAccess (matriz de acesso por tela)", () => {
     for (const path of SECTIONS) expect(canAccess("admin", path), path).toBe(true);
   });
 
-  it("recepção acessa Dashboard, Agenda, Pacientes, Profissionais, Serviços, Convênios e Financeiro", () => {
-    for (const path of ["/dashboard", "/agenda", "/pacientes", "/profissionais", "/servicos", "/convenios", "/financeiro"]) {
+  it("recepção acessa Dashboard, Agenda, Lista de espera, Pacientes, Profissionais, Serviços, Convênios e Financeiro", () => {
+    for (const path of ["/dashboard", "/agenda", "/lista-espera", "/pacientes", "/profissionais", "/servicos", "/convenios", "/financeiro"]) {
       expect(canAccess("reception", path), path).toBe(true);
     }
+  });
+
+  it("a lista de espera é gestão da equipe: o profissional não acessa a tela nem as sub-rotas", () => {
+    for (const path of ["/lista-espera", "/lista-espera/", "/lista-espera?aba=encerradas", "/lista-espera/qualquer"]) {
+      expect(canAccess("professional", path), path).toBe(false);
+    }
+    expect(canAccess(undefined, "/lista-espera")).toBe(false);
+    expect(canAccess("reception", "/lista-esperax")).toBe(false);
   });
 
   it("recepção não acessa Configurações", () => {

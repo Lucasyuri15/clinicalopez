@@ -7,6 +7,7 @@ import { HAS_SUPABASE } from "./support/env";
 const ALL = [
   "Dashboard",
   "Agenda",
+  "Lista de espera",
   "Pacientes",
   "Profissionais",
   "Serviços",
@@ -18,12 +19,12 @@ const ALL = [
 const EXPECTED: Record<Role, { visible: string[]; denied: string[] }> = {
   admin: { visible: ALL, denied: [] },
   reception: {
-    visible: ["Dashboard", "Agenda", "Pacientes", "Profissionais", "Serviços", "Convênios", "Financeiro"],
+    visible: ["Dashboard", "Agenda", "Lista de espera", "Pacientes", "Profissionais", "Serviços", "Convênios", "Financeiro"],
     denied: ["/configuracoes"],
   },
   professional: {
     visible: ["Dashboard", "Agenda", "Pacientes", "Profissionais", "Serviços"],
-    denied: ["/convenios", "/financeiro", "/configuracoes"],
+    denied: ["/lista-espera", "/convenios", "/financeiro", "/configuracoes"],
   },
 };
 
