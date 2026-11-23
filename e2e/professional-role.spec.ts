@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 
-import { brtDate, brtInstant, esc, nextMonday, pastStart } from "./support/agenda";
+import { brtDate, brtInstant, esc, freeMondays, nextMonday, pastStart } from "./support/agenda";
 import { readUsers, testAs } from "./support/auth";
 import {
   appointmentsState,
@@ -16,6 +16,7 @@ import {
   seedPatients,
   seedProfessionals,
   seedSchedule,
+  seedSeries,
 } from "./support/db";
 import { HAS_SUPABASE } from "./support/env";
 
@@ -255,6 +256,38 @@ asProfessional.describe("perfil profissional: só o próprio cadastro e a própr
     await expect(sheet).toContainText("Cancelada");
     await expect(sheet).not.toContainText(secretReason);
     expect(await page.content(), secretReason).not.toContain(secretReason);
+  });
+
+  asProfessional("agenda: as sessões de uma série aparecem como atendimentos comuns, sem selo, andamento, escopo nem renovar (nem no HTML)", async ({ page }, testInfo) => {
+    const createdBy = await adminProfileId(testInfo.project.name);
+    const [first, second] = freeMondays(2) as [string, string];
+    const { seriesId } = await seedSeries({
+      professionalName: seeded.own.name,
+      patientName: patients.own.name,
+      serviceName: seeded.physioService,
+      startsAts: [brtInstant(first, "09:00"), brtInstant(second, "09:00")],
+      durationMinutes: 50,
+      createdBy,
+    });
+
+    await page.goto(`/agenda?view=day&date=${first}`);
+    const mine = page.getByRole("button", { name: new RegExp(`09:00–09:50, ${esc(patients.own.name)}`) });
+    await expect(mine).toBeVisible();
+    // O nome acessível e o texto do cartão não falam de série.
+    await expect(mine).not.toContainText("Série");
+    expect(await mine.getAttribute("aria-label")).not.toMatch(/série|sessão \d/i);
+
+    await mine.click();
+    const sheet = page.getByRole("dialog");
+    await expect(sheet).toContainText(patients.own.name);
+    for (const text of ["Série", "Sessão 1 de 2", "Renovar série", "Esta e as seguintes", "restantes"]) {
+      await expect(sheet, text).not.toContainText(text);
+    }
+    // Nem o id da série, nem o selo, nem o botão de renovar vão no HTML entregue ao profissional.
+    const html = await page.content();
+    for (const secret of [seriesId, "Série 1/2", "Renovar série", "Esta e as seguintes da série"]) {
+      expect(html, secret).not.toContain(secret);
+    }
   });
 
   asProfessional("agenda: marca Realizada e Falta nos próprios atendimentos (e não corrige depois)", async ({ page }, testInfo) => {

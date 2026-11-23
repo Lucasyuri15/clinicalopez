@@ -40,3 +40,19 @@ export function pastStart(from: Date = new Date()): Date {
 
 /** Escapa um texto para usá-lo dentro de `new RegExp(...)` (as etiquetas dos e2e têm colchetes). */
 export const esc = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * `count` segundas-feiras CONSECUTIVAS a partir de amanhã, nenhuma delas um dia de folga criado por
+ * `seedSchedule` (hoje + 10 e + 20): para as séries semanais não esbarrarem numa folga sem querer.
+ */
+export function freeMondays(count: number, from: Date = new Date()): string[] {
+  const today = brtDate(from);
+  const off = new Set([addDays(today, 10), addDays(today, 20)]);
+  for (let step = 1; step <= 120; step += 1) {
+    const first = addDays(today, step);
+    if (weekday(first) !== 1) continue;
+    const dates = Array.from({ length: count }, (_, index) => addDays(first, index * 7));
+    if (dates.every((date) => !off.has(date))) return dates;
+  }
+  throw new Error("Nenhuma sequência de segundas-feiras livres encontrada.");
+}
