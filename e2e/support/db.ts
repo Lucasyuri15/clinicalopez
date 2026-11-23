@@ -897,3 +897,38 @@ export async function waitlistState(tag: string): Promise<WaitlistRow[]> {
     await sql.end({ timeout: 2 });
   }
 }
+
+/**
+ * Põe alguém na lista de espera como DONO do banco (para montar o cenário de um teste que não é o do
+ * cadastro). Só nomes de e2e etiquetados; `createdBy` é o perfil de um usuário fictício. Sem
+ * `professionalName` a espera aceita qualquer profissional que ofereça o serviço. A limpeza é a de
+ * `deletePatients` (as esperas saem junto com o paciente).
+ */
+export async function seedWaitlistEntry(input: {
+  patientName: string;
+  serviceName: string;
+  professionalName?: string;
+  weekdays?: number[];
+  createdBy: string;
+}): Promise<string> {
+  for (const name of [input.patientName, input.serviceName, ...(input.professionalName ? [input.professionalName] : [])]) {
+    if (!TAGGED_NAME.test(name)) throw new Error("Recusado: só uso nomes de e2e etiquetados.");
+  }
+  const sql = connect();
+  try {
+    return await sql.begin(async (tx) => {
+      const [patient] = await tx`select id from public.patients where full_name = ${input.patientName}`;
+      const [service] = await tx`select id, specialty from public.services where name = ${input.serviceName}`;
+      const [professional] = input.professionalName
+        ? await tx`select id from public.professionals where full_name = ${input.professionalName}`
+        : [null];
+      if (!patient || !service || (input.professionalName && !professional)) throw new Error("Dados fictícios da espera não encontrados.");
+      const [row] = await tx`insert into public.waitlist_entries (patient_id, service_id, professional_id, specialty, weekdays, created_by)
+        values (${patient.id}, ${service.id}, ${professional?.id ?? null}, ${service.specialty}, ${input.weekdays ?? []}::smallint[], ${input.createdBy})
+        returning id`;
+      return row!.id as string;
+    });
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}

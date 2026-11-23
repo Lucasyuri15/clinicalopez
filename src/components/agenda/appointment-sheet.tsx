@@ -20,6 +20,7 @@ import {
   cancelAppointmentAction,
   changeStatusAction,
   rescheduleAppointmentAction,
+  type CancelFormState,
 } from "@/server/appointments/actions";
 import type { AgendaItem } from "@/server/appointments/queries";
 import {
@@ -33,6 +34,7 @@ import {
 import { AppointmentStatusBadge } from "./appointment-status-badge";
 import { FormErrorBox, useFormAction } from "./form-action";
 import { hasSkippedSummary, SeriesSection, SkippedSummary, SummaryPanel, useStalePreview } from "./series-section";
+import { WaitlistSuggestion } from "./waitlist-suggestion";
 
 type Props = {
   item: AgendaItem;
@@ -324,19 +326,27 @@ function RescheduleForm({ item, inSeries, onBack, onSaved }: { item: AgendaItem;
   );
 }
 
+/** O estado do formulário de cancelar: o da série ou o do atendimento avulso (com a sugestão da espera). */
+type CancelState = NonNullable<SeriesFormState> & NonNullable<CancelFormState>;
+
 function CancelForm({ item, inSeries, onBack, onSaved }: { item: AgendaItem; inSeries: boolean; onBack: () => void; onSaved: () => void }) {
   const [scope, setScope] = useState<Scope>("one");
-  const { state, formAction, pending, errorRef } = useFormAction<SeriesFormState>(
+  // Cancelar só ESTA sessão pode trazer uma sugestão da lista de espera (a série "daqui para frente" não).
+  const { state, formAction, pending, errorRef } = useFormAction<CancelState | undefined>(
     async (previous, formData) =>
       formData.get("scope") === "forward"
         ? cancelSeriesFromAction(previous, formData)
         : cancelAppointmentAction(previous, formData),
     onSaved,
+    // Com candidatos na espera, a gaveta fica aberta para a recepção agendar um deles.
+    (result) => Boolean(result.suggestion),
   );
   const values = state?.values;
   const [length, setLength] = useState((values?.reason ?? "").length);
   const id = `cancel-${item.id}`;
   const forward = inSeries && scope === "forward";
+
+  if (state?.success && state.suggestion) return <WaitlistSuggestion suggestion={state.suggestion} onClose={onSaved} />;
 
   return (
     <form action={formAction} className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4" noValidate>
