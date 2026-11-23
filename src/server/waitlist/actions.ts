@@ -2,10 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 
-import { addWaitlistSchema, removeWaitlistSchema, updateWaitlistSchema } from "@/lib/waitlist/schemas";
+import { addWaitlistSchema, bookFromWaitlistSchema, removeWaitlistSchema, updateWaitlistSchema } from "@/lib/waitlist/schemas";
 import { requireRole } from "@/server/auth/session";
 
-import { WAITLIST_MESSAGES } from "./messages";
+import { bookFromWaitlist } from "./book";
+import { BOOK_FAILURE_MESSAGES, WAITLIST_MESSAGES } from "./messages";
 import { addEntry, removeEntry, updateEntry, type WaitlistResult } from "./mutations";
 
 /**
@@ -78,4 +79,22 @@ export async function removeWaitlistAction(_prevState: WaitlistFormState, formDa
   const parsed = removeWaitlistSchema().safeParse(values);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message, values);
   return outcome(await removeEntry({ userId: staff.userId }, parsed.data), values);
+}
+
+/**
+ * Agenda a espera no horário que vagou (um clique na gaveta de cancelar). Só a espera, o profissional e
+ * o início vêm do formulário; o resto o servidor lê. Atualiza a agenda, a lista e a ficha do paciente
+ * (nasce o vínculo com o profissional).
+ */
+export async function bookFromWaitlistAction(_prevState: WaitlistFormState, formData: FormData): Promise<WaitlistFormState> {
+  const staff = await requireRole("admin", "reception");
+  const parsed = bookFromWaitlistSchema().safeParse(pick(formData, ["entryId", "professionalId", "startsAt"] as const));
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? WAITLIST_MESSAGES.generic };
+
+  const result = await bookFromWaitlist({ userId: staff.userId }, parsed.data);
+  if (!result.ok) return { error: BOOK_FAILURE_MESSAGES[result.reason] };
+  revalidatePath("/agenda");
+  revalidatePath("/lista-espera");
+  revalidatePath("/pacientes/[id]", "page");
+  return { success: true };
 }

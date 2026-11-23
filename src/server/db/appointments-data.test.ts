@@ -455,7 +455,12 @@ describe.skipIf(!hasDb)("camada de dados da agenda (integração, Supabase dev)"
     it("cancela com motivo; o motivo e quem cancelou ficam gravados; cancelar de novo é 'changed'", async () => {
       await reset();
       const id = ((await createAppointment(users.reception, input())) as { id: string }).id;
-      expect(await cancelAppointment(users.reception, { id, reason: "Paciente avisou que viajou" })).toEqual({ ok: true, id });
+      expect(await cancelAppointment(users.reception, { id, reason: "Paciente avisou que viajou" })).toEqual({
+        ok: true,
+        id,
+        // O horário que ficou livre (a 3B-2 procura candidatos na lista de espera com ele).
+        freed: { professionalId: ids.pA, specialty: "physiotherapy", ...slot("09:00", "09:50") },
+      });
       const row = await rowOf(id);
       expect(row).toMatchObject({ status: "cancelled", cancel_reason: "Paciente avisou que viajou", status_changed_by: users.reception.userId });
       expect(await cancelAppointment(users.reception, { id, reason: "De novo" })).toEqual({ ok: false, reason: "changed" });

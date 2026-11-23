@@ -168,3 +168,22 @@ export function removeWaitlistSchema() {
     return { id };
   });
 }
+
+/**
+ * Agendar a partir da espera. O formulário traz SÓ a espera, o profissional e o início do horário que
+ * vagou (instante UTC em ISO, o que a gaveta recebeu do servidor): o paciente, o serviço e a duração
+ * vêm do servidor, lidos da espera e do serviço, porque o que a tela mostrou não é confiável.
+ */
+export function bookFromWaitlistSchema() {
+  return z.object({ entryId: z.string(), professionalId: z.string(), startsAt: z.string() }).transform((v, ctx) => {
+    const entryId = uuidOf(v.entryId);
+    const professionalId = uuidOf(v.professionalId);
+    const instant = z.iso.datetime().safeParse(v.startsAt).success ? new Date(v.startsAt) : null;
+    const startsAt = instant && !Number.isNaN(instant.getTime()) ? instant : null;
+    if (entryId === null) ctx.addIssue({ code: "custom", path: ["entryId"], message: "Registro inválido." });
+    if (professionalId === null) ctx.addIssue({ code: "custom", path: ["professionalId"], message: "Profissional inválido." });
+    if (startsAt === null) ctx.addIssue({ code: "custom", path: ["startsAt"], message: "Horário inválido." });
+    if (entryId === null || professionalId === null || startsAt === null) return z.NEVER;
+    return { entryId, professionalId, startsAt };
+  });
+}
