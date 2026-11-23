@@ -1,13 +1,14 @@
 import "server-only";
 
-import { and, asc, eq, gte, lt, type SQL } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import type { Specialty } from "@/lib/catalog/labels";
+import { seriesProgress, type SeriesMember, type SeriesProgress } from "@/lib/appointments/series";
 import { isStaffRole, type ActorRole, type AppointmentStatus } from "@/lib/appointments/status";
 import { withoutQueryDetails } from "@/server/db/pg-error";
 import { appointments, patients, professionals, services } from "@/server/db/schema";
-import { withUser } from "@/server/db/with-user";
+import { withUser, type Tx } from "@/server/db/with-user";
 import { lackingDataConsentIn } from "@/server/patients/consent-queries";
 
 /**
@@ -41,6 +42,11 @@ export type AgendaItem = {
   cancelReason: string | null;
   /** Só existe para a equipe (staff): falta o consentimento LGPD de tratamento de dados. */
   lacksDataConsent?: boolean;
+  /**
+   * Só existe para a equipe (staff) e só quando a sessão é de uma série: o id e o andamento dela
+   * (realizadas × restantes). O profissional NUNCA recebe nem o id (a série é gestão da recepção).
+   */
+  series?: ({ id: string } & SeriesProgress) | null;
 };
 
 /** Teto de uma consulta (uma semana de uma clínica pequena cabe com folga). */
@@ -69,6 +75,7 @@ const columns = {
   endsAt: appointments.endsAt,
   status: appointments.status,
   cancelReason: appointments.cancelReason,
+  seriesId: appointments.seriesId,
 };
 
 type Row = {
@@ -84,13 +91,53 @@ type Row = {
   endsAt: Date;
   status: string;
   cancelReason: string | null;
+  seriesId: string | null;
 };
 
+/**
+ * Campo a campo, de propósito: um `...row` deixaria o `seriesId` (e qualquer coluna futura) escapar para
+ * o profissional. A série só chega à equipe, já com o andamento (`attachSeries`).
+ */
 const toItem = (row: Row, staff: boolean): AgendaItem => ({
-  ...row,
+  id: row.id,
+  professionalId: row.professionalId,
+  professionalName: row.professionalName,
+  specialty: row.specialty,
+  patientId: row.patientId,
+  patientName: row.patientName,
+  serviceId: row.serviceId,
+  serviceName: row.serviceName,
+  startsAt: row.startsAt,
+  endsAt: row.endsAt,
   status: row.status as AppointmentStatus,
   cancelReason: staff ? row.cancelReason : null,
 });
+
+/**
+ * Acrescenta a série e o andamento (só para a equipe). UMA consulta com todas as sessões das séries que
+ * aparecem na tela, e nenhuma quando não há série: a agenda comum não paga nada a mais.
+ */
+async function attachSeries(tx: Tx, items: AgendaItem[], seriesIdOf: ReadonlyMap<string, string | null>): Promise<AgendaItem[]> {
+  const seriesIds = [...new Set([...seriesIdOf.values()].filter((id): id is string => id !== null))];
+  if (seriesIds.length === 0) return items;
+
+  const rows = await tx
+    .select({ seriesId: appointments.seriesId, id: appointments.id, startsAt: appointments.startsAt, endsAt: appointments.endsAt, status: appointments.status })
+    .from(appointments)
+    .where(inArray(appointments.seriesId, seriesIds));
+  const membersOf = new Map<string, SeriesMember[]>();
+  for (const row of rows) {
+    if (!row.seriesId) continue;
+    const list = membersOf.get(row.seriesId) ?? [];
+    list.push({ id: row.id, startsAt: row.startsAt, endsAt: row.endsAt, status: row.status as AppointmentStatus });
+    membersOf.set(row.seriesId, list);
+  }
+  return items.map((item) => {
+    const seriesId = seriesIdOf.get(item.id) ?? null;
+    if (!seriesId) return item;
+    return { ...item, series: { id: seriesId, ...seriesProgress(membersOf.get(seriesId) ?? [], item.id) } };
+  });
+}
 
 /**
  * Atendimentos com INÍCIO na janela `[from, to)` (meio-aberta), por horário. Filtros opcionais por
@@ -123,7 +170,8 @@ export async function listAppointments(
       if (!staff) return items;
       // O aviso de consentimento só vale para a equipe: para o profissional a RLS não devolve linha.
       const lacking = new Set(await lackingDataConsentIn(tx, [...new Set(items.map((item) => item.patientId))]));
-      return items.map((item) => ({ ...item, lacksDataConsent: lacking.has(item.patientId) }));
+      const withConsent = items.map((item) => ({ ...item, lacksDataConsent: lacking.has(item.patientId) }));
+      return attachSeries(tx, withConsent, new Map(rows.map((row) => [row.id, row.seriesId])));
     }),
   );
 }
@@ -149,7 +197,12 @@ export async function getAppointment(
       const item = toItem(row, staff);
       if (!staff) return item;
       const lacking = await lackingDataConsentIn(tx, [item.patientId]);
-      return { ...item, lacksDataConsent: lacking.includes(item.patientId) };
+      const [withSeries] = await attachSeries(
+        tx,
+        [{ ...item, lacksDataConsent: lacking.includes(item.patientId) }],
+        new Map([[row.id, row.seriesId]]),
+      );
+      return withSeries ?? null;
     }),
   );
 }

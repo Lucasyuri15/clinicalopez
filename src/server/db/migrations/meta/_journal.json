@@ -190,6 +190,20 @@
       "when": 1795376589021,
       "tag": "0026_schedule_reception_write",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1795442561283,
+      "tag": "0027_appointment_series",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1795442566718,
+      "tag": "0028_appointment_series_access",
+      "breakpoints": true
     }
   ]
 }

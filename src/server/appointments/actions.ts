@@ -11,12 +11,12 @@ import {
 import { requireRole } from "@/server/auth/session";
 import type { CatalogFormState } from "@/server/catalog/actions";
 
+import { FAILURE_MESSAGES } from "./messages";
 import {
   cancelAppointment,
   changeAppointmentStatus,
   createAppointment,
   rescheduleAppointment,
-  type AppointmentFailure,
   type AppointmentResult,
 } from "./mutations";
 
@@ -33,22 +33,6 @@ import {
  */
 export type AppointmentFormState = CatalogFormState;
 
-const MESSAGES: Record<AppointmentFailure | "generic", string> = {
-  generic: "Não foi possível concluir. Tente novamente.",
-  "not-found": "Paciente, profissional ou atendimento não encontrado. Atualize a página e tente de novo.",
-  "service-not-offered": "Este profissional não realiza o serviço escolhido.",
-  past: "Esse horário já passou.",
-  "invalid-slot": "Horário inválido. Use horários de 5 em 5 minutos, dentro de um mesmo dia.",
-  "outside-grid": "Esse horário está fora do atendimento do profissional.",
-  "time-off": "O profissional tem uma folga ou bloqueio nesse horário.",
-  "conflict-professional": "O profissional já tem um atendimento nesse horário.",
-  "conflict-patient": "O paciente já tem um atendimento nesse horário.",
-  changed: "Este atendimento foi alterado por outra pessoa. Atualize a página.",
-  "too-early": "Só é possível registrar Realizada ou Falta depois do início do atendimento.",
-  "not-allowed": "Você não tem permissão para essa mudança.",
-  denied: "Não foi possível salvar. Confira os dados e tente de novo.",
-  busy: "O sistema estava ocupado. Tente de novo.",
-};
 
 function text(formData: FormData, name: string): string {
   const value = formData.get(name);
@@ -66,7 +50,7 @@ function revalidateAgenda() {
 }
 
 function outcome(result: AppointmentResult, values: Record<string, string>): AppointmentFormState {
-  if (!result.ok) return { error: MESSAGES[result.reason], values };
+  if (!result.ok) return { error: FAILURE_MESSAGES[result.reason], values };
   revalidateAgenda();
   return { success: true };
 }
@@ -81,7 +65,7 @@ export async function createAppointmentAction(
   const staff = await requireRole("admin", "reception");
   const values = pick(formData, CREATE_FIELDS);
   const parsed = createAppointmentSchema(new Date()).safeParse(values);
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? MESSAGES.generic, values };
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? FAILURE_MESSAGES.generic, values };
   return outcome(await createAppointment({ userId: staff.userId }, parsed.data), values);
 }
 
@@ -92,7 +76,7 @@ export async function rescheduleAppointmentAction(
   const staff = await requireRole("admin", "reception");
   const values = pick(formData, RESCHEDULE_FIELDS);
   const parsed = rescheduleAppointmentSchema(new Date()).safeParse(values);
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? MESSAGES.generic, values };
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? FAILURE_MESSAGES.generic, values };
   return outcome(await rescheduleAppointment({ userId: staff.userId }, parsed.data), values);
 }
 
@@ -103,7 +87,7 @@ export async function cancelAppointmentAction(
   const staff = await requireRole("admin", "reception");
   const values = pick(formData, ["id", "reason"] as const);
   const parsed = cancelAppointmentSchema.safeParse(values);
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? MESSAGES.generic, values };
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? FAILURE_MESSAGES.generic, values };
   return outcome(await cancelAppointment({ userId: staff.userId }, parsed.data), values);
 }
 
@@ -115,6 +99,6 @@ export async function changeStatusAction(
   const user = await requireRole("admin", "reception", "professional");
   const values = pick(formData, ["id", "status"] as const);
   const parsed = statusChangeSchema.safeParse(values);
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? MESSAGES.generic, values };
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? FAILURE_MESSAGES.generic, values };
   return outcome(await changeAppointmentStatus({ userId: user.userId }, parsed.data, user.role), values);
 }

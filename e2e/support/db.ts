@@ -555,6 +555,9 @@ export async function deletePatients(tag: string): Promise<void> {
           (select id from public.patients where full_name like ${like}))`;
       await tx`delete from public.appointments where patient_id in
         (select id from public.patients where full_name like ${like})`;
+      // Séries: as sessões (atendimentos) já foram; a série referencia o paciente (FK restrict).
+      await tx`delete from public.appointment_series where patient_id in
+        (select id from public.patients where full_name like ${like})`;
       // Consentimentos: referenciam o paciente (FK restrict).
       await tx`delete from public.patient_consents where patient_id in
         (select id from public.patients where full_name like ${like})`;
@@ -726,6 +729,73 @@ export async function seedAppointment(input: {
       }
       return row!.id as string;
     });
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+/**
+ * Cria uma SÉRIE e as sessões dela como DONO do banco (não passa pela grade nem pelo "início no
+ * futuro"). Só nomes de e2e etiquetados. Devolve o id da série e o de cada sessão, em ordem.
+ */
+export async function seedSeries(input: {
+  professionalName: string;
+  patientName: string;
+  serviceName: string;
+  startsAts: Date[];
+  durationMinutes: number;
+  createdBy: string;
+}): Promise<{ seriesId: string; ids: string[] }> {
+  for (const name of [input.professionalName, input.patientName, input.serviceName]) {
+    if (!TAGGED_NAME.test(name)) throw new Error("Recusado: só uso nomes de e2e etiquetados.");
+  }
+  const sql = connect();
+  try {
+    return await sql.begin(async (tx) => {
+      const [professional] = await tx`select id, specialty from public.professionals where full_name = ${input.professionalName}`;
+      const [patient] = await tx`select id from public.patients where full_name = ${input.patientName}`;
+      const [service] = await tx`select id from public.services where name = ${input.serviceName}`;
+      if (!professional || !patient || !service) throw new Error("Dados fictícios da série não encontrados.");
+      const [series] = await tx`insert into public.appointment_series (professional_id, patient_id, service_id, specialty, created_by)
+        values (${professional.id}, ${patient.id}, ${service.id}, ${professional.specialty}, ${input.createdBy}) returning id`;
+      const ids: string[] = [];
+      for (const startsAt of input.startsAts) {
+        const endsAt = new Date(startsAt.getTime() + input.durationMinutes * 60_000);
+        const [row] = await tx`insert into public.appointments
+          (series_id, professional_id, patient_id, service_id, specialty, starts_at, ends_at, created_by)
+          values (${series!.id}, ${professional.id}, ${patient.id}, ${service.id}, ${professional.specialty}, ${startsAt}, ${endsAt}, ${input.createdBy})
+          returning id`;
+        ids.push(row!.id as string);
+      }
+      return { seriesId: series!.id as string, ids };
+    });
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+export type SeriesSessionRow = {
+  seriesId: string;
+  patient: string;
+  startsAt: Date;
+  endsAt: Date;
+  status: string;
+  cancelReason: string | null;
+};
+
+/** Estado REAL gravado das sessões de série dos pacientes do teste, por horário. */
+export async function seriesSessions(tag: string): Promise<SeriesSessionRow[]> {
+  if (!/^\[e2e-cat [0-9a-f]{8}\]$/.test(tag)) throw new Error("Recusado: etiqueta de e2e inválida.");
+  const sql = connect();
+  try {
+    const rows = await sql`
+      select a.series_id as "seriesId", pa.full_name as patient, a.starts_at as "startsAt", a.ends_at as "endsAt",
+        a.status, a.cancel_reason as "cancelReason"
+      from public.appointments a
+      join public.patients pa on pa.id = a.patient_id
+      where a.series_id is not null and pa.full_name like ${`${tag}%`}
+      order by a.starts_at`;
+    return rows as unknown as SeriesSessionRow[];
   } finally {
     await sql.end({ timeout: 2 });
   }

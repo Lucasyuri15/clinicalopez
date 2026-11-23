@@ -1,3 +1,4 @@
+import type { OccurrenceReason } from "./series";
 import type { AppointmentStatus } from "./status";
 
 /** Rótulos dos status em pt-BR, como aparecem nas telas. */
@@ -28,4 +29,19 @@ const CORRECTION_LABELS = {
 export function statusActionLabel(from: AppointmentStatus, to: "confirmed" | "done" | "no_show"): string {
   if ((from === "done" || from === "no_show") && to !== "confirmed") return CORRECTION_LABELS[to];
   return ACTION_LABELS[to];
+}
+
+/** Por que uma data da série não cabe, em palavras curtas para a prévia (sem dado de paciente). */
+const OCCURRENCE_REASON_LABELS: Record<OccurrenceReason, string> = {
+  past: "Já passou",
+  invalid: "Horário inválido",
+  "crosses-midnight": "Atravessa a meia-noite",
+  "outside-grid": "Fora do atendimento do profissional",
+  "time-off": "Folga ou bloqueio do profissional",
+  "conflict-professional": "O profissional já tem atendimento",
+  "conflict-patient": "O paciente já tem atendimento",
+};
+
+export function occurrenceReasonLabel(reason: OccurrenceReason): string {
+  return OCCURRENCE_REASON_LABELS[reason];
 }

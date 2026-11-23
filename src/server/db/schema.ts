@@ -542,6 +542,45 @@ export const patientConsents = pgTable(
 ).enableRLS();
 
 /**
+ * Série de sessões (Fase 3A): a IDENTIDADE de um pacote ou recorrência (quem, com quem, qual
+ * serviço). Imutável e sem o padrão guardado: as sessões são atendimentos comuns (`appointments`
+ * com `series_id`), e o conflito de horário continua sendo das exclusões daquela tabela. Só admin e
+ * recepção leem e criam; NENHUMA política para o profissional; sem UPDATE nem DELETE para ninguém.
+ */
+export const appointmentSeries = pgTable(
+  "appointment_series",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    professionalId: uuid("professional_id").notNull(),
+    patientId: uuid("patient_id")
+      .notNull()
+      .references(() => patients.id, { onDelete: "restrict" }),
+    serviceId: uuid("service_id").notNull(),
+    specialty: specialty("specialty").notNull(),
+    createdBy: uuid("created_by")
+      .notNull()
+      .default(sql`auth.uid()`)
+      .references(() => profiles.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "appointment_series_professional_fk",
+      columns: [table.professionalId, table.specialty],
+      foreignColumns: [professionals.id, professionals.specialty],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "appointment_series_service_fk",
+      columns: [table.serviceId, table.specialty],
+      foreignColumns: [services.id, services.specialty],
+    }).onDelete("restrict"),
+    // Alvo da FK composta de `appointments`: o trio da série.
+    unique("appointment_series_identity_uq").on(table.id, table.professionalId, table.patientId, table.serviceId),
+    index("appointment_series_patient_idx").on(table.patientId),
+  ],
+).enableRLS();
+
+/**
  * Atendimentos da agenda (Fase 2). Um atendimento é de UM profissional, UM paciente e UM serviço.
  * `starts_at`/`ends_at` em UTC (timestamptz), de 5 em 5 minutos e sem segundos, duração de 5 a 480
  * min. A mesma especialidade de profissional e serviço é garantida pelas FKs compostas (não há FK
@@ -568,6 +607,12 @@ export const appointments = pgTable(
       .references(() => patients.id, { onDelete: "restrict" }),
     serviceId: uuid("service_id").notNull(),
     specialty: specialty("specialty").notNull(),
+    /**
+     * Série a que o atendimento pertence (Fase 3A); nulo = atendimento avulso. Imutável (gatilho) e
+     * sem escrita por coluna para `authenticated`: só nasce no INSERT. A FK composta abaixo faz o
+     * banco garantir que toda sessão da série é do mesmo profissional, paciente e serviço.
+     */
+    seriesId: uuid("series_id"),
     startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
     endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
     /** `scheduled`, `confirmed`, `done`, `no_show` ou `cancelled`. */
@@ -619,6 +664,18 @@ export const appointments = pgTable(
     check("appointments_cancel_reason_format_check", optionalText(table.cancelReason, 200)),
     index("appointments_starts_idx").on(table.startsAt),
     index("appointments_patient_idx").on(table.patientId, table.startsAt),
+    // MATCH SIMPLE: com `series_id` nulo (avulso) a FK não confere nada.
+    foreignKey({
+      name: "appointments_series_fk",
+      columns: [table.seriesId, table.professionalId, table.patientId, table.serviceId],
+      foreignColumns: [
+        appointmentSeries.id,
+        appointmentSeries.professionalId,
+        appointmentSeries.patientId,
+        appointmentSeries.serviceId,
+      ],
+    }).onDelete("restrict"),
+    index("appointments_series_idx").on(table.seriesId, table.startsAt),
   ],
 ).enableRLS();
 
