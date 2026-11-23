@@ -5,6 +5,8 @@ import { isRealDate, zonedToUtc } from "@/lib/datetime";
 import { STEP_MINUTES } from "@/lib/schedule/time";
 import type { AgendaView } from "@/lib/schedule/calendar";
 
+import { generateOccurrences, SERIES_MAX_SESSIONS, SERIES_MIN_SESSIONS, type Occurrence } from "./series";
+
 /**
  * Validação (Zod) das entradas da agenda. Recebe o que vem do formulário (tudo texto) e devolve
  * tipos prontos (instantes UTC). Os limites espelham os `CHECK` do banco; aqui a mensagem é em
@@ -153,6 +155,108 @@ export const cancelAppointmentSchema = z
     if (failed || !id) return z.NEVER;
     return { id, reason };
   });
+
+/**
+ * Padrão de uma série semanal (criar e renovar): data de partida, horário, duração, dias da semana
+ * e número de sessões. NÃO recusa partida no passado: a prévia classifica cada sessão (`past`) e a
+ * gravação recusa as que já passaram. Devolve também as datas já calculadas (`generateOccurrences`),
+ * e recusa a série que não cabe em 1 ano. Mensagens fixas: nunca repetem o que foi digitado.
+ */
+type PatternInput = {
+  date: string;
+  startTime: string;
+  durationMinutes: string;
+  weekdays: string[];
+  count: string;
+};
+
+type Pattern = {
+  firstDate: string;
+  startTime: string;
+  durationMinutes: number;
+  weekdays: number[];
+  count: number;
+  occurrences: Occurrence[];
+};
+
+function parsePattern(v: PatternInput, fail: Fail): Pattern | null {
+  const slot = parseSlot(v, new Date(0), fail);
+
+  let weekdays: number[] | null = null;
+  if (v.weekdays.length === 0) {
+    fail("weekdays", "Escolha ao menos um dia da semana.");
+  } else if (!v.weekdays.every((day) => /^[0-6]$/.test(day.trim()))) {
+    fail("weekdays", "Dia da semana inválido.");
+  } else {
+    weekdays = [...new Set(v.weekdays.map((day) => Number(day.trim())))].sort((a, b) => a - b);
+  }
+
+  const countText = v.count.trim();
+  const count = /^\d+$/.test(countText) ? Number(countText) : Number.NaN;
+  const countOk = Number.isInteger(count) && count >= SERIES_MIN_SESSIONS && count <= SERIES_MAX_SESSIONS;
+  if (!countOk) fail("count", `Informe de ${SERIES_MIN_SESSIONS} a ${SERIES_MAX_SESSIONS} sessões.`);
+
+  if (!slot || !weekdays || !countOk) return null;
+  const firstDate = v.date.trim();
+  const startTime = v.startTime.trim();
+  const durationMinutes = Math.round((slot.endsAt.getTime() - slot.startsAt.getTime()) / 60_000);
+  const occurrences = generateOccurrences({ firstDate, weekdays, startTime, durationMinutes, count });
+  if (occurrences.length < count) {
+    fail("count", "A série passa de 1 ano. Reduza o número de sessões.");
+    return null;
+  }
+  if ((occurrences.at(-1)?.date ?? "") > AGENDA_DATE_MAX) {
+    fail("count", "A série passa da data máxima da agenda (31/12/2100).");
+    return null;
+  }
+  return { firstDate, startTime, durationMinutes, weekdays, count, occurrences };
+}
+
+const PATTERN_FIELDS = {
+  date: z.string(),
+  startTime: z.string(),
+  durationMinutes: z.string(),
+  weekdays: z.array(z.string()),
+  count: z.string(),
+};
+
+/** Criar série (e a prévia dela): paciente, profissional, serviço e o padrão semanal. */
+export function createSeriesSchema() {
+  return z
+    .object({ patientId: z.string(), professionalId: z.string(), serviceId: z.string(), ...PATTERN_FIELDS })
+    .transform((v, ctx) => {
+      let failed = false;
+      const fail: Fail = (field, message) => {
+        failed = true;
+        ctx.addIssue({ code: "custom", path: [field], message });
+      };
+      const patientId = uuidOf(v.patientId);
+      if (patientId === null) fail("patientId", "Paciente inválido.");
+      const professionalId = uuidOf(v.professionalId);
+      if (professionalId === null) fail("professionalId", "Profissional inválido.");
+      const serviceId = uuidOf(v.serviceId);
+      if (serviceId === null) fail("serviceId", "Serviço inválido.");
+      const pattern = parsePattern(v, fail);
+      if (failed || !pattern || !patientId || !professionalId || !serviceId) return z.NEVER;
+      return { patientId, professionalId, serviceId, ...pattern };
+    });
+}
+
+/** Renovar série: o mesmo padrão sobre uma série que já existe (profissional, paciente e serviço vêm dela). */
+export function renewSeriesSchema() {
+  return z.object({ seriesId: z.string(), ...PATTERN_FIELDS }).transform((v, ctx) => {
+    let failed = false;
+    const fail: Fail = (field, message) => {
+      failed = true;
+      ctx.addIssue({ code: "custom", path: [field], message });
+    };
+    const seriesId = uuidOf(v.seriesId);
+    if (seriesId === null) fail("seriesId", "Série inválida.");
+    const pattern = parsePattern(v, fail);
+    if (failed || !pattern || !seriesId) return z.NEVER;
+    return { seriesId, ...pattern };
+  });
+}
 
 /** Mudar o status (sem cancelar: cancelar tem ação própria, com motivo). */
 export const CHANGEABLE_STATUSES = ["confirmed", "done", "no_show"] as const;
