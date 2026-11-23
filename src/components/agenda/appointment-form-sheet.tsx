@@ -1,7 +1,7 @@
 "use client";
 
 import { PlusIcon } from "lucide-react";
-import { useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,11 +10,14 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import type { GridDay } from "@/lib/appointments/grid-hint";
 import { MAX_DURATION, MIN_DURATION } from "@/lib/appointments/schemas";
 import { specialtyLabel, type Specialty } from "@/lib/catalog/labels";
+import { weekdayOf } from "@/lib/schedule/calendar";
 import { STEP_MINUTES } from "@/lib/schedule/time";
 import { createAppointmentAction } from "@/server/appointments/actions";
+import { createSeriesAction, previewSeriesAction, type SeriesFormState } from "@/server/appointments/series-actions";
 
 import { FormErrorBox, useFormAction } from "./form-action";
 import { PatientPicker } from "./patient-picker";
+import { hasSkippedSummary, SeriesSection, SkippedSummary, useStalePreview } from "./series-section";
 
 /** Um profissional ATIVO que pode receber agendamento, com o que o formulário precisa dele. */
 export type BookableProfessional = {
@@ -76,7 +79,32 @@ function CreateForm({
   onSaved,
 }: Props & { onSaved: () => void }) {
   const { state, formAction, pending, errorRef } = useFormAction(createAppointmentAction, onSaved);
-  const values = state?.values;
+
+  // Modo "Repetir semanalmente": a MESMA gaveta e os mesmos campos, mas o envio vai para as ações de
+  // série. Um botão "Ver prévia" só LÊ; "Criar" grava as datas que cabem. Sem nada para mostrar depois
+  // de criar (nenhuma data pulada), a gaveta fecha; com datas puladas, mostra o resumo antes.
+  const [repeat, setRepeat] = useState(false);
+  const [seriesState, seriesAction, seriesPending] = useActionState(
+    async (previous: SeriesFormState, formData: FormData) => {
+      const result =
+        formData.get("intent") === "create"
+          ? await createSeriesAction(previous, formData)
+          : await previewSeriesAction(previous, formData);
+      if (result?.success && !result.skipped?.length) onSaved();
+      return result;
+    },
+    undefined,
+  );
+  const { stale, onEdit } = useStalePreview(seriesState);
+  useEffect(() => {
+    if (!seriesState?.error) return;
+    errorRef.current?.scrollIntoView({ block: "nearest" });
+    errorRef.current?.focus();
+  }, [seriesState, errorRef]);
+
+  // Os valores devolvidos pela ação do modo atual; sem eles, os da outra: alternar "Repetir" depois de uma
+  // prévia ou de um erro não pode apagar o que a pessoa já digitou (data, horário, duração).
+  const values = repeat ? (seriesState?.values ?? state?.values) : (state?.values ?? seriesState?.values);
   const resetKey = (name: string) => values?.[name] ?? "inicial";
 
   const validProfessional = (id: string | null | undefined) =>
@@ -96,9 +124,20 @@ function CreateForm({
       ? values.durationMinutes
       : String(service?.durationMinutes ?? "");
 
+  // Criou com datas puladas: o resumo SUBSTITUI o formulário (com os campos visíveis acima dele, confundia).
+  if (repeat && hasSkippedSummary(seriesState) && seriesState?.skipped) {
+    return <SkippedSummary created={seriesState.created ?? 0} skipped={seriesState.skipped} onClose={onSaved} />;
+  }
+
   return (
-    <form action={formAction} className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4" noValidate>
-      <FormErrorBox state={state} errorRef={errorRef} />
+    <form
+      action={repeat ? seriesAction : formAction}
+      onChange={onEdit}
+      className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4"
+      noValidate
+    >
+      <fieldset disabled={repeat && seriesPending} className="contents">
+      <FormErrorBox state={repeat ? seriesState : state} errorRef={errorRef} />
 
       <div className={FIELD}>
         <label htmlFor="appt-patient" className={LABEL}>
@@ -221,9 +260,32 @@ function CreateForm({
         </p>
       </div>
 
-      <Button type="submit" className="h-11" disabled={pending}>
-        {pending ? "Agendando…" : "Agendar"}
-      </Button>
+      <label className="flex min-h-11 items-center gap-2 text-sm font-medium md:min-h-8">
+        <input
+          type="checkbox"
+          checked={repeat}
+          onChange={(event) => setRepeat(event.target.checked)}
+          className="size-4"
+        />
+        Repetir semanalmente (série de sessões)
+      </label>
+
+      {repeat ? (
+        <SeriesSection
+          defaultWeekday={weekdayOf(defaultDate)}
+          idPrefix="appt"
+          values={values}
+          resetKey={resetKey}
+          state={seriesState}
+          stale={stale}
+          pending={seriesPending}
+        />
+      ) : (
+        <Button type="submit" className="h-11" disabled={pending}>
+          {pending ? "Agendando…" : "Agendar"}
+        </Button>
+      )}
+      </fieldset>
     </form>
   );
 }
