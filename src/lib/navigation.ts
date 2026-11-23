@@ -1,6 +1,7 @@
 import {
   CalendarDays,
   ClipboardList,
+  Hourglass,
   LayoutDashboard,
   type LucideIcon,
   Settings,
@@ -20,6 +21,7 @@ export type NavItem = {
 export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/agenda", label: "Agenda", icon: CalendarDays },
+  { href: "/lista-espera", label: "Lista de espera", icon: Hourglass },
   { href: "/pacientes", label: "Pacientes", icon: Users },
   { href: "/profissionais", label: "Profissionais", icon: Stethoscope },
   { href: "/servicos", label: "Serviços", icon: ClipboardList },

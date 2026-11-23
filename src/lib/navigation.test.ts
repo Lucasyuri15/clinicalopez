@@ -22,6 +22,11 @@ describe("NAV_ITEMS", () => {
     ]);
   });
 
+  test("a Lista de espera vem logo depois da Agenda", () => {
+    const hrefs = NAV_ITEMS.map((item) => item.href);
+    expect(hrefs.slice(hrefs.indexOf("/agenda"), hrefs.indexOf("/agenda") + 2)).toEqual(["/agenda", "/lista-espera"]);
+  });
+
   test("começa pelo dashboard", () => {
     expect(NAV_ITEMS[0]?.href).toBe("/dashboard");
   });

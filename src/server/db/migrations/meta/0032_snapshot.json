@@ -1,0 +1,2489 @@
+{
+  "id": "d26bba1a-b367-4b05-b318-7a50918112ad",
+  "prevId": "f59f9e41-2d2d-4451-b184-60cf8fe72e6a",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.appointment_prices": {
+      "name": "appointment_prices",
+      "schema": "",
+      "columns": {
+        "appointment_id": {
+          "name": "appointment_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "price_cents": {
+          "name": "price_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "insurance_id": {
+          "name": "insurance_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "appointment_prices_insurance_idx": {
+          "name": "appointment_prices_insurance_idx",
+          "columns": [
+            {
+              "expression": "insurance_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "appointment_prices_appointment_id_appointments_id_fk": {
+          "name": "appointment_prices_appointment_id_appointments_id_fk",
+          "tableFrom": "appointment_prices",
+          "tableTo": "appointments",
+          "columnsFrom": [
+            "appointment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "appointment_prices_insurance_id_insurances_id_fk": {
+          "name": "appointment_prices_insurance_id_insurances_id_fk",
+          "tableFrom": "appointment_prices",
+          "tableTo": "insurances",
+          "columnsFrom": [
+            "insurance_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "appointment_prices_price_check": {
+          "name": "appointment_prices_price_check",
+          "value": "\"appointment_prices\".\"price_cents\" between 0 and 10000000"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.appointment_series": {
+      "name": "appointment_series",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "professional_id": {
+          "name": "professional_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "patient_id": {
+          "name": "patient_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "service_id": {
+          "name": "service_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "specialty": {
+          "name": "specialty",
+          "type": "specialty",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "auth.uid()"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "appointment_series_patient_idx": {
+          "name": "appointment_series_patient_idx",
+          "columns": [
+            {
+              "expression": "patient_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "appointment_series_patient_id_patients_id_fk": {
+          "name": "appointment_series_patient_id_patients_id_fk",
+          "tableFrom": "appointment_series",
+          "tableTo": "patients",
+          "columnsFrom": [
+            "patient_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "appointment_series_created_by_profiles_id_fk": {
+          "name": "appointment_series_created_by_profiles_id_fk",
+          "tableFrom": "appointment_series",
+          "tableTo": "profiles",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "appointment_series_professional_fk": {
+          "name": "appointment_series_professional_fk",
+          "tableFrom": "appointment_series",
+          "tableTo": "professionals",
+          "columnsFrom": [
+            "professional_id",
+            "specialty"
+          ],
+          "columnsTo": [
+            "id",
+            "specialty"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "appointment_series_service_fk": {
+          "name": "appointment_series_service_fk",
+          "tableFrom": "appointment_series",
+          "tableTo": "services",
+          "columnsFrom": [
+            "service_id",
+            "specialty"
+          ],
+          "columnsTo": [
+            "id",
+            "specialty"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "appointment_series_identity_uq": {
+          "name": "appointment_series_identity_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "professional_id",
+            "patient_id",
+            "service_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.appointments": {
+      "name": "appointments",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "professional_id": {
+          "name": "professional_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "patient_id": {
+          "name": "patient_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "service_id": {
+          "name": "service_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "specialty": {
+          "name": "specialty",
+          "type": "specialty",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "series_id": {
+          "name": "series_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "starts_at": {
+          "name": "starts_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ends_at": {
+          "name": "ends_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'scheduled'"
+        },
+        "cancel_reason": {
+          "name": "cancel_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "auth.uid()"
+        },
+        "status_changed_at": {
+          "name": "status_changed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status_changed_by": {
+          "name": "status_changed_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "appointments_starts_idx": {
+          "name": "appointments_starts_idx",
+          "columns": [
+            {
+              "expression": "starts_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "appointments_patient_idx": {
+          "name": "appointments_patient_idx",
+          "columns": [
+            {
+              "expression": "patient_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "starts_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "appointments_series_idx": {
+          "name": "appointments_series_idx",
+          "columns": [
+            {
+              "expression": "series_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "starts_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "appointments_patient_id_patients_id_fk": {
+          "name": "appointments_patient_id_patients_id_fk",
+          "tableFrom": "appointments",
+          "tableTo": "patients",
+          "columnsFrom": [
+            "patient_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "appointments_created_by_profiles_id_fk": {
+          "name": "appointments_created_by_profiles_id_fk",
+          "tableFrom": "appointments",
+          "tableTo": "profiles",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "appointments_status_changed_by_profiles_id_fk": {
+          "name": "appointments_status_changed_by_profiles_id_fk",
+          "tableFrom": "appointments",
+          "tableTo": "profiles",
+          "columnsFrom": [
+            "status_changed_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "appointments_professional_fk": {
+          "name": "appointments_professional_fk",
+          "tableFrom": "appointments",
+          "tableTo": "professionals",
+          "columnsFrom": [
+            "professional_id",
+            "specialty"
+          ],
+          "columnsTo": [
+            "id",
+            "specialty"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "appointments_service_fk": {
+          "name": "appointments_service_fk",
+          "tableFrom": "appointments",
+          "tableTo": "services",
+          "columnsFrom": [
+            "service_id",
+            "specialty"
+          ],
+          "columnsTo": [
+            "id",
+            "specialty"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "appointments_series_fk": {
+          "name": "appointments_series_fk",
+          "tableFrom": "appointments",
+          "tableTo": "appointment_series",
+          "columnsFrom": [
+            "series_id",
+            "professional_id",
+            "patient_id",
+            "service_id"
+          ],
+          "columnsTo": [
+            "id",
+            "professional_id",
+            "patient_id",
+            "service_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "appointments_status_check": {
+          "name": "appointments_status_check",
+          "value": "\"appointments\".\"status\" in ('scheduled', 'confirmed', 'done', 'no_show', 'cancelled')"
+        },
+        "appointments_range_check": {
+          "name": "appointments_range_check",
+          "value": "\"appointments\".\"starts_at\" < \"appointments\".\"ends_at\""
+        },
+        "appointments_duration_check": {
+          "name": "appointments_duration_check",
+          "value": "\"appointments\".\"ends_at\" - \"appointments\".\"starts_at\" between interval '5 minutes' and interval '8 hours'"
+        },
+        "appointments_step_check": {
+          "name": "appointments_step_check",
+          "value": "mod(extract(epoch from \"appointments\".\"starts_at\"), 300) = 0 and mod(extract(epoch from \"appointments\".\"ends_at\"), 300) = 0"
+        },
+        "appointments_bounds_check": {
+          "name": "appointments_bounds_check",
+          "value": "\"appointments\".\"starts_at\" >= timestamptz '2000-01-01 00:00:00+00' and \"appointments\".\"ends_at\" < timestamptz '2101-01-01 00:00:00+00'"
+        },
+        "appointments_cancel_reason_check": {
+          "name": "appointments_cancel_reason_check",
+          "value": "(\"appointments\".\"status\" = 'cancelled') = (\"appointments\".\"cancel_reason\" is not null)"
+        },
+        "appointments_cancel_reason_format_check": {
+          "name": "appointments_cancel_reason_format_check",
+          "value": "\"appointments\".\"cancel_reason\" is null or (char_length(\"appointments\".\"cancel_reason\") between 1 and 200 and \"appointments\".\"cancel_reason\" ~ '^\\S(.*\\S)?$' and \"appointments\".\"cancel_reason\" !~ '[\\x01-\\x1f\\x7f]')"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.auth_attempts": {
+      "name": "auth_attempts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "auth_attempts_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ip": {
+          "name": "ip",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subject_hash": {
+          "name": "subject_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "auth_attempts_ip_idx": {
+          "name": "auth_attempts_ip_idx",
+          "columns": [
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ip",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "auth_attempts_pair_idx": {
+          "name": "auth_attempts_pair_idx",
+          "columns": [
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "subject_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ip",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "auth_attempts_created_idx": {
+          "name": "auth_attempts_created_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "auth_attempts_kind_check": {
+          "name": "auth_attempts_kind_check",
+          "value": "\"auth_attempts\".\"kind\" in ('login', 'mfa')"
+        },
+        "auth_attempts_ip_check": {
+          "name": "auth_attempts_ip_check",
+          "value": "char_length(\"auth_attempts\".\"ip\") between 1 and 64"
+        },
+        "auth_attempts_subject_check": {
+          "name": "auth_attempts_subject_check",
+          "value": "\"auth_attempts\".\"subject_hash\" ~ '^[0-9a-f]{64}$'"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.insurances": {
+      "name": "insurances",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "insurances_name_uq": {
+          "name": "insurances_name_uq",
+          "columns": [
+            {
+              "expression": "lower(\"name\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"insurances\".\"deleted_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "insurances_name_check": {
+          "name": "insurances_name_check",
+          "value": "char_length(\"insurances\".\"name\") between 1 and 120 and \"insurances\".\"name\" ~ '^\\S(.*\\S)?$'"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.patient_consents": {
+      "name": "patient_consents",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "patient_id": {
+          "name": "patient_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "granted": {
+          "name": "granted",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "given_by": {
+          "name": "given_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "method": {
+          "name": "method",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_on": {
+          "name": "occurred_on",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "registered_by": {
+          "name": "registered_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "auth.uid()"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "patient_consents_patient_idx": {
+          "name": "patient_consents_patient_idx",
+          "columns": [
+            {
+              "expression": "patient_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "occurred_on",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "patient_consents_patient_id_patients_id_fk": {
+          "name": "patient_consents_patient_id_patients_id_fk",
+          "tableFrom": "patient_consents",
+          "tableTo": "patients",
+          "columnsFrom": [
+            "patient_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "patient_consents_registered_by_profiles_id_fk": {
+          "name": "patient_consents_registered_by_profiles_id_fk",
+          "tableFrom": "patient_consents",
+          "tableTo": "profiles",
+          "columnsFrom": [
+            "registered_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "patient_consents_kind_check": {
+          "name": "patient_consents_kind_check",
+          "value": "\"patient_consents\".\"kind\" in ('data_processing', 'whatsapp')"
+        },
+        "patient_consents_given_by_check": {
+          "name": "patient_consents_given_by_check",
+          "value": "\"patient_consents\".\"given_by\" in ('patient', 'guardian')"
+        },
+        "patient_consents_method_check": {
+          "name": "patient_consents_method_check",
+          "value": "\"patient_consents\".\"method\" in ('signed_paper', 'verbal', 'digital')"
+        },
+        "patient_consents_occurred_on_check": {
+          "name": "patient_consents_occurred_on_check",
+          "value": "\"patient_consents\".\"occurred_on\" between date '1900-01-01' and date '2100-12-31'"
+        },
+        "patient_consents_note_check": {
+          "name": "patient_consents_note_check",
+          "value": "\"patient_consents\".\"note\" is null or (char_length(\"patient_consents\".\"note\") between 1 and 300 and \"patient_consents\".\"note\" ~ '^\\S(.*\\S)?$' and \"patient_consents\".\"note\" !~ '[\\x01-\\x1f\\x7f]')"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.patient_private": {
+      "name": "patient_private",
+      "schema": "",
+      "columns": {
+        "patient_id": {
+          "name": "patient_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "cpf": {
+          "name": "cpf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "no_cpf_reason": {
+          "name": "no_cpf_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cep": {
+          "name": "cep",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "street": {
+          "name": "street",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "number": {
+          "name": "number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "complement": {
+          "name": "complement",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "district": {
+          "name": "district",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "city": {
+          "name": "city",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "insurance_id": {
+          "name": "insurance_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "insurance_card": {
+          "name": "insurance_card",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "guardian_name": {
+          "name": "guardian_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "guardian_relationship": {
+          "name": "guardian_relationship",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "guardian_phone": {
+          "name": "guardian_phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "guardian_cpf": {
+          "name": "guardian_cpf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "admin_notes": {
+          "name": "admin_notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "patient_private_cpf_uq": {
+          "name": "patient_private_cpf_uq",
+          "columns": [
+            {
+              "expression": "cpf",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "patient_private_insurance_idx": {
+          "name": "patient_private_insurance_idx",
+          "columns": [
+            {
+              "expression": "insurance_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "patient_private_patient_id_patients_id_fk": {
+          "name": "patient_private_patient_id_patients_id_fk",
+          "tableFrom": "patient_private",
+          "tableTo": "patients",
+          "columnsFrom": [
+            "patient_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "patient_private_insurance_id_insurances_id_fk": {
+          "name": "patient_private_insurance_id_insurances_id_fk",
+          "tableFrom": "patient_private",
+          "tableTo": "insurances",
+          "columnsFrom": [
+            "insurance_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "patient_private_cpf_check": {
+          "name": "patient_private_cpf_check",
+          "value": "\"patient_private\".\"cpf\" is null or \"patient_private\".\"cpf\" ~ '^[0-9]{11}$'"
+        },
+        "patient_private_no_cpf_reason_check": {
+          "name": "patient_private_no_cpf_reason_check",
+          "value": "\"patient_private\".\"no_cpf_reason\" is null or (char_length(\"patient_private\".\"no_cpf_reason\") between 1 and 200 and \"patient_private\".\"no_cpf_reason\" ~ '^\\S(.*\\S)?$' and \"patient_private\".\"no_cpf_reason\" !~ '[\\x01-\\x1f\\x7f]')"
+        },
+        "patient_private_cpf_or_reason_check": {
+          "name": "patient_private_cpf_or_reason_check",
+          "value": "(\"patient_private\".\"cpf\" is not null) <> (\"patient_private\".\"no_cpf_reason\" is not null)"
+        },
+        "patient_private_cep_check": {
+          "name": "patient_private_cep_check",
+          "value": "\"patient_private\".\"cep\" is null or \"patient_private\".\"cep\" ~ '^[0-9]{8}$'"
+        },
+        "patient_private_street_check": {
+          "name": "patient_private_street_check",
+          "value": "\"patient_private\".\"street\" is null or (char_length(\"patient_private\".\"street\") between 1 and 120 and \"patient_private\".\"street\" ~ '^\\S(.*\\S)?$' and \"patient_private\".\"street\" !~ '[\\x01-\\x1f\\x7f]')"
+        },
+        "patient_private_number_check": {
+          "name": "patient_private_number_check",
+          "value": "\"patient_private\".\"number\" is null or (char_length(\"patient_private\".\"number\") between 1 and 20 and \"patient_private\".\"number\" ~ '^\\S(.*\\S)?$' and \"patient_private\".\"number\" !~ '[\\x01-\\x1f\\x7f]')"
+        },
+        "patient_private_complement_check": {
+          "name": "patient_private_complement_check",
+          "value": "\"patient_private\".\"complement\" is null or (char_length(\"patient_private\".\"complement\") between 1 and 60 and \"patient_private\".\"complement\" ~ '^\\S(.*\\S)?$' and \"patient_private\".\"complement\" !~ '[\\x01-\\x1f\\x7f]')"
+        },
+        "patient_private_district_check": {
+          "name": "patient_private_district_check",
+          "value": "\"patient_private\".\"district\" is null or (char_length(\"patient_private\".\"district\") between 1 and 60 and \"patient_private\".\"district\" ~ '^\\S(.*\\S)?$' and \"patient_private\".\"district\" !~ '[\\x01-\\x1f\\x7f]')"
+        },
+        "patient_private_city_check": {
+          "name": "patient_private_city_check",
+          "value": "\"patient_private\".\"city\" is null or (char_length(\"patient_private\".\"city\") between 1 and 60 and \"patient_private\".\"city\" ~ '^\\S(.*\\S)?$' and \"patient_private\".\"city\" !~ '[\\x01-\\x1f\\x7f]')"
+        },
+        "patient_private_state_check": {
+          "name": "patient_private_state_check",
+          "value": "\"patient_private\".\"state\" is null or \"patient_private\".\"state\" ~ '^[A-Z]{2}$'"
+        },
+        "patient_private_card_check": {
+          "name": "patient_private_card_check",
+          "value": "\"patient_private\".\"insurance_card\" is null or (char_length(\"patient_private\".\"insurance_card\") between 1 and 40 and \"patient_private\".\"insurance_card\" ~ '^\\S(.*\\S)?$' and \"patient_private\".\"insurance_card\" !~ '[\\x01-\\x1f\\x7f]')"
+        },
+        "patient_private_card_insurance_check": {
+          "name": "patient_private_card_insurance_check",
+          "value": "\"patient_private\".\"insurance_card\" is null or \"patient_private\".\"insurance_id\" is not null"
+        },
+        "patient_private_guardian_name_check": {
+          "name": "patient_private_guardian_name_check",
+          "value": "\"patient_private\".\"guardian_name\" is null or (char_length(\"patient_private\".\"guardian_name\") between 1 and 120 and \"patient_private\".\"guardian_name\" ~ '^\\S(.*\\S)?$' and \"patient_private\".\"guardian_name\" !~ '[\\x01-\\x1f\\x7f]')"
+        },
+        "patient_private_guardian_relationship_check": {
+          "name": "patient_private_guardian_relationship_check",
+          "value": "\"patient_private\".\"guardian_relationship\" is null or (char_length(\"patient_private\".\"guardian_relationship\") between 1 and 40 and \"patient_private\".\"guardian_relationship\" ~ '^\\S(.*\\S)?$' and \"patient_private\".\"guardian_relationship\" !~ '[\\x01-\\x1f\\x7f]')"
+        },
+        "patient_private_guardian_phone_check": {
+          "name": "patient_private_guardian_phone_check",
+          "value": "\"patient_private\".\"guardian_phone\" is null or \"patient_private\".\"guardian_phone\" ~ '^[0-9]{10,11}$'"
+        },
+        "patient_private_guardian_cpf_check": {
+          "name": "patient_private_guardian_cpf_check",
+          "value": "\"patient_private\".\"guardian_cpf\" is null or \"patient_private\".\"guardian_cpf\" ~ '^[0-9]{11}$'"
+        },
+        "patient_private_admin_notes_check": {
+          "name": "patient_private_admin_notes_check",
+          "value": "\"patient_private\".\"admin_notes\" is null or (char_length(\"patient_private\".\"admin_notes\") between 1 and 1000 and \"patient_private\".\"admin_notes\" ~ '^\\S(.*\\S)?$' and \"patient_private\".\"admin_notes\" !~ '[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]')"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.patient_professionals": {
+      "name": "patient_professionals",
+      "schema": "",
+      "columns": {
+        "patient_id": {
+          "name": "patient_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "professional_id": {
+          "name": "professional_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "patient_professionals_professional_idx": {
+          "name": "patient_professionals_professional_idx",
+          "columns": [
+            {
+              "expression": "professional_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "patient_professionals_patient_id_patients_id_fk": {
+          "name": "patient_professionals_patient_id_patients_id_fk",
+          "tableFrom": "patient_professionals",
+          "tableTo": "patients",
+          "columnsFrom": [
+            "patient_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "patient_professionals_professional_id_professionals_id_fk": {
+          "name": "patient_professionals_professional_id_professionals_id_fk",
+          "tableFrom": "patient_professionals",
+          "tableTo": "professionals",
+          "columnsFrom": [
+            "professional_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "patient_professionals_pk": {
+          "name": "patient_professionals_pk",
+          "columns": [
+            "patient_id",
+            "professional_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.patients": {
+      "name": "patients",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "full_name": {
+          "name": "full_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "birth_date": {
+          "name": "birth_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "patients_name_idx": {
+          "name": "patients_name_idx",
+          "columns": [
+            {
+              "expression": "lower(\"full_name\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "patients_name_check": {
+          "name": "patients_name_check",
+          "value": "char_length(\"patients\".\"full_name\") between 1 and 120 and \"patients\".\"full_name\" ~ '^\\S(.*\\S)?$' and \"patients\".\"full_name\" !~ '[\\x01-\\x1f\\x7f]'"
+        },
+        "patients_birth_date_check": {
+          "name": "patients_birth_date_check",
+          "value": "\"patients\".\"birth_date\" between date '1900-01-01' and current_date"
+        },
+        "patients_phone_check": {
+          "name": "patients_phone_check",
+          "value": "\"patients\".\"phone\" is null or \"patients\".\"phone\" ~ '^[0-9]{10,11}$'"
+        },
+        "patients_email_check": {
+          "name": "patients_email_check",
+          "value": "\"patients\".\"email\" is null or (char_length(\"patients\".\"email\") <= 254 and \"patients\".\"email\" ~ '^[^\\s@]+@[^\\s@]+$')"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.professional_services": {
+      "name": "professional_services",
+      "schema": "",
+      "columns": {
+        "professional_id": {
+          "name": "professional_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "service_id": {
+          "name": "service_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "specialty": {
+          "name": "specialty",
+          "type": "specialty",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "professional_services_service_idx": {
+          "name": "professional_services_service_idx",
+          "columns": [
+            {
+              "expression": "service_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "professional_services_professional_fk": {
+          "name": "professional_services_professional_fk",
+          "tableFrom": "professional_services",
+          "tableTo": "professionals",
+          "columnsFrom": [
+            "professional_id",
+            "specialty"
+          ],
+          "columnsTo": [
+            "id",
+            "specialty"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "professional_services_service_fk": {
+          "name": "professional_services_service_fk",
+          "tableFrom": "professional_services",
+          "tableTo": "services",
+          "columnsFrom": [
+            "service_id",
+            "specialty"
+          ],
+          "columnsTo": [
+            "id",
+            "specialty"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "professional_services_pk": {
+          "name": "professional_services_pk",
+          "columns": [
+            "professional_id",
+            "service_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.professional_time_off": {
+      "name": "professional_time_off",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "professional_id": {
+          "name": "professional_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "starts_at": {
+          "name": "starts_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ends_at": {
+          "name": "ends_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "professional_time_off_professional_idx": {
+          "name": "professional_time_off_professional_idx",
+          "columns": [
+            {
+              "expression": "professional_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "starts_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "professional_time_off_professional_id_professionals_id_fk": {
+          "name": "professional_time_off_professional_id_professionals_id_fk",
+          "tableFrom": "professional_time_off",
+          "tableTo": "professionals",
+          "columnsFrom": [
+            "professional_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "professional_time_off_period_check": {
+          "name": "professional_time_off_period_check",
+          "value": "\"professional_time_off\".\"starts_at\" < \"professional_time_off\".\"ends_at\""
+        },
+        "professional_time_off_max_period_check": {
+          "name": "professional_time_off_max_period_check",
+          "value": "\"professional_time_off\".\"ends_at\" - \"professional_time_off\".\"starts_at\" <= interval '366 days'"
+        },
+        "professional_time_off_bounds_check": {
+          "name": "professional_time_off_bounds_check",
+          "value": "\"professional_time_off\".\"starts_at\" >= timestamptz '2000-01-01 00:00:00+00' and \"professional_time_off\".\"ends_at\" < timestamptz '2101-01-02 00:00:00+00'"
+        },
+        "professional_time_off_reason_check": {
+          "name": "professional_time_off_reason_check",
+          "value": "\"professional_time_off\".\"reason\" is null or (char_length(\"professional_time_off\".\"reason\") between 1 and 120 and \"professional_time_off\".\"reason\" ~ '^\\S(.*\\S)?$')"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.professional_work_hours": {
+      "name": "professional_work_hours",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "professional_id": {
+          "name": "professional_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "weekday": {
+          "name": "weekday",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "start_minute": {
+          "name": "start_minute",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "end_minute": {
+          "name": "end_minute",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "professional_work_hours_professional_idx": {
+          "name": "professional_work_hours_professional_idx",
+          "columns": [
+            {
+              "expression": "professional_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "weekday",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "start_minute",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "professional_work_hours_professional_id_professionals_id_fk": {
+          "name": "professional_work_hours_professional_id_professionals_id_fk",
+          "tableFrom": "professional_work_hours",
+          "tableTo": "professionals",
+          "columnsFrom": [
+            "professional_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "professional_work_hours_weekday_check": {
+          "name": "professional_work_hours_weekday_check",
+          "value": "\"professional_work_hours\".\"weekday\" between 0 and 6"
+        },
+        "professional_work_hours_range_check": {
+          "name": "professional_work_hours_range_check",
+          "value": "\"professional_work_hours\".\"start_minute\" between 0 and 1435 and \"professional_work_hours\".\"end_minute\" between 5 and 1440 and \"professional_work_hours\".\"start_minute\" < \"professional_work_hours\".\"end_minute\" and \"professional_work_hours\".\"start_minute\" % 5 = 0 and \"professional_work_hours\".\"end_minute\" % 5 = 0"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.professionals": {
+      "name": "professionals",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "full_name": {
+          "name": "full_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "specialty": {
+          "name": "specialty",
+          "type": "specialty",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "registration": {
+          "name": "registration",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "profile_id": {
+          "name": "profile_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "link_role": {
+          "name": "link_role",
+          "type": "user_role",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'professional'"
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "professionals_profile_uq": {
+          "name": "professionals_profile_uq",
+          "columns": [
+            {
+              "expression": "profile_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"professionals\".\"profile_id\" is not null and \"professionals\".\"deleted_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "professionals_specialty_name_uq": {
+          "name": "professionals_specialty_name_uq",
+          "columns": [
+            {
+              "expression": "specialty",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"full_name\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"professionals\".\"deleted_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "professionals_profile_fk": {
+          "name": "professionals_profile_fk",
+          "tableFrom": "professionals",
+          "tableTo": "profiles",
+          "columnsFrom": [
+            "profile_id",
+            "link_role"
+          ],
+          "columnsTo": [
+            "id",
+            "role"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "professionals_id_specialty_uq": {
+          "name": "professionals_id_specialty_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "specialty"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "professionals_name_check": {
+          "name": "professionals_name_check",
+          "value": "char_length(\"professionals\".\"full_name\") between 1 and 120 and \"professionals\".\"full_name\" ~ '^\\S(.*\\S)?$'"
+        },
+        "professionals_registration_check": {
+          "name": "professionals_registration_check",
+          "value": "\"professionals\".\"registration\" is null or (char_length(\"professionals\".\"registration\") between 3 and 30 and \"professionals\".\"registration\" ~ '^\\S(.*\\S)?$')"
+        },
+        "professionals_phone_check": {
+          "name": "professionals_phone_check",
+          "value": "\"professionals\".\"phone\" is null or \"professionals\".\"phone\" ~ '^[0-9]{10,11}$'"
+        },
+        "professionals_email_check": {
+          "name": "professionals_email_check",
+          "value": "\"professionals\".\"email\" is null or (char_length(\"professionals\".\"email\") <= 254 and \"professionals\".\"email\" ~ '^[^\\s@]+@[^\\s@]+$')"
+        },
+        "professionals_link_role_check": {
+          "name": "professionals_link_role_check",
+          "value": "\"professionals\".\"link_role\" = 'professional'"
+        },
+        "professionals_removed_unlinked_check": {
+          "name": "professionals_removed_unlinked_check",
+          "value": "\"professionals\".\"deleted_at\" is null or \"professionals\".\"profile_id\" is null"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.profiles": {
+      "name": "profiles",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "full_name": {
+          "name": "full_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "user_role",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "profiles_id_users_id_fk": {
+          "name": "profiles_id_users_id_fk",
+          "tableFrom": "profiles",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "profiles_id_role_uq": {
+          "name": "profiles_id_role_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "role"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.service_prices": {
+      "name": "service_prices",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "service_id": {
+          "name": "service_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "insurance_id": {
+          "name": "insurance_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "price_cents": {
+          "name": "price_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "service_prices_particular_uq": {
+          "name": "service_prices_particular_uq",
+          "columns": [
+            {
+              "expression": "service_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"service_prices\".\"insurance_id\" is null and \"service_prices\".\"deleted_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "service_prices_insurance_uq": {
+          "name": "service_prices_insurance_uq",
+          "columns": [
+            {
+              "expression": "service_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "insurance_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"service_prices\".\"insurance_id\" is not null and \"service_prices\".\"deleted_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "service_prices_insurance_idx": {
+          "name": "service_prices_insurance_idx",
+          "columns": [
+            {
+              "expression": "insurance_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "service_prices_service_id_services_id_fk": {
+          "name": "service_prices_service_id_services_id_fk",
+          "tableFrom": "service_prices",
+          "tableTo": "services",
+          "columnsFrom": [
+            "service_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "service_prices_insurance_id_insurances_id_fk": {
+          "name": "service_prices_insurance_id_insurances_id_fk",
+          "tableFrom": "service_prices",
+          "tableTo": "insurances",
+          "columnsFrom": [
+            "insurance_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "service_prices_price_check": {
+          "name": "service_prices_price_check",
+          "value": "\"service_prices\".\"price_cents\" between 0 and 10000000"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.services": {
+      "name": "services",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "specialty": {
+          "name": "specialty",
+          "type": "specialty",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "duration_minutes": {
+          "name": "duration_minutes",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "services_specialty_name_uq": {
+          "name": "services_specialty_name_uq",
+          "columns": [
+            {
+              "expression": "specialty",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"name\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"services\".\"deleted_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "services_id_specialty_uq": {
+          "name": "services_id_specialty_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "specialty"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "services_name_check": {
+          "name": "services_name_check",
+          "value": "char_length(\"services\".\"name\") between 1 and 120 and \"services\".\"name\" ~ '^\\S(.*\\S)?$'"
+        },
+        "services_duration_check": {
+          "name": "services_duration_check",
+          "value": "\"services\".\"duration_minutes\" between 5 and 480"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.waitlist_entries": {
+      "name": "waitlist_entries",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "patient_id": {
+          "name": "patient_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "service_id": {
+          "name": "service_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "professional_id": {
+          "name": "professional_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "specialty": {
+          "name": "specialty",
+          "type": "specialty",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "weekdays": {
+          "name": "weekdays",
+          "type": "smallint[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::smallint[]"
+        },
+        "start_minute": {
+          "name": "start_minute",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "end_minute": {
+          "name": "end_minute",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "waitlist_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'waiting'"
+        },
+        "appointment_id": {
+          "name": "appointment_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "closed_at": {
+          "name": "closed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "closed_by": {
+          "name": "closed_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "auth.uid()"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "waitlist_entries_appointment_uq": {
+          "name": "waitlist_entries_appointment_uq",
+          "columns": [
+            {
+              "expression": "appointment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"waitlist_entries\".\"appointment_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "waitlist_entries_open_uq": {
+          "name": "waitlist_entries_open_uq",
+          "columns": [
+            {
+              "expression": "patient_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "service_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "coalesce(\"professional_id\", '00000000-0000-0000-0000-000000000000'::uuid)",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"waitlist_entries\".\"status\" = 'waiting'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "waitlist_entries_status_idx": {
+          "name": "waitlist_entries_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "waitlist_entries_patient_idx": {
+          "name": "waitlist_entries_patient_idx",
+          "columns": [
+            {
+              "expression": "patient_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "waitlist_entries_patient_id_patients_id_fk": {
+          "name": "waitlist_entries_patient_id_patients_id_fk",
+          "tableFrom": "waitlist_entries",
+          "tableTo": "patients",
+          "columnsFrom": [
+            "patient_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "waitlist_entries_appointment_id_appointments_id_fk": {
+          "name": "waitlist_entries_appointment_id_appointments_id_fk",
+          "tableFrom": "waitlist_entries",
+          "tableTo": "appointments",
+          "columnsFrom": [
+            "appointment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "waitlist_entries_closed_by_profiles_id_fk": {
+          "name": "waitlist_entries_closed_by_profiles_id_fk",
+          "tableFrom": "waitlist_entries",
+          "tableTo": "profiles",
+          "columnsFrom": [
+            "closed_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "waitlist_entries_created_by_profiles_id_fk": {
+          "name": "waitlist_entries_created_by_profiles_id_fk",
+          "tableFrom": "waitlist_entries",
+          "tableTo": "profiles",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "waitlist_entries_service_fk": {
+          "name": "waitlist_entries_service_fk",
+          "tableFrom": "waitlist_entries",
+          "tableTo": "services",
+          "columnsFrom": [
+            "service_id",
+            "specialty"
+          ],
+          "columnsTo": [
+            "id",
+            "specialty"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "waitlist_entries_professional_fk": {
+          "name": "waitlist_entries_professional_fk",
+          "tableFrom": "waitlist_entries",
+          "tableTo": "professionals",
+          "columnsFrom": [
+            "professional_id",
+            "specialty"
+          ],
+          "columnsTo": [
+            "id",
+            "specialty"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "waitlist_entries_weekdays_check": {
+          "name": "waitlist_entries_weekdays_check",
+          "value": "coalesce(array_ndims(\"waitlist_entries\".\"weekdays\"), 1) = 1 and cardinality(\"waitlist_entries\".\"weekdays\") <= 7 and \"waitlist_entries\".\"weekdays\" <@ array[0,1,2,3,4,5,6]::smallint[]"
+        },
+        "waitlist_entries_window_check": {
+          "name": "waitlist_entries_window_check",
+          "value": "(\"waitlist_entries\".\"start_minute\" is null and \"waitlist_entries\".\"end_minute\" is null) or (\"waitlist_entries\".\"start_minute\" is not null and \"waitlist_entries\".\"end_minute\" is not null and \"waitlist_entries\".\"start_minute\" between 0 and 1435 and \"waitlist_entries\".\"end_minute\" between 5 and 1440 and \"waitlist_entries\".\"start_minute\" < \"waitlist_entries\".\"end_minute\" and \"waitlist_entries\".\"start_minute\" % 5 = 0 and \"waitlist_entries\".\"end_minute\" % 5 = 0)"
+        },
+        "waitlist_entries_note_check": {
+          "name": "waitlist_entries_note_check",
+          "value": "\"waitlist_entries\".\"note\" is null or (char_length(\"waitlist_entries\".\"note\") between 1 and 200 and \"waitlist_entries\".\"note\" ~ '^\\S(.*\\S)?$' and \"waitlist_entries\".\"note\" !~ '[\\x01-\\x1f\\x7f]')"
+        },
+        "waitlist_entries_fulfilled_check": {
+          "name": "waitlist_entries_fulfilled_check",
+          "value": "(\"waitlist_entries\".\"status\" = 'fulfilled') = (\"waitlist_entries\".\"appointment_id\" is not null)"
+        },
+        "waitlist_entries_closed_check": {
+          "name": "waitlist_entries_closed_check",
+          "value": "(\"waitlist_entries\".\"status\" = 'waiting') = (\"waitlist_entries\".\"closed_at\" is null)"
+        },
+        "waitlist_entries_closed_by_check": {
+          "name": "waitlist_entries_closed_by_check",
+          "value": "(\"waitlist_entries\".\"closed_at\" is null) = (\"waitlist_entries\".\"closed_by\" is null)"
+        }
+      },
+      "isRLSEnabled": true
+    }
+  },
+  "enums": {
+    "public.specialty": {
+      "name": "specialty",
+      "schema": "public",
+      "values": [
+        "physiotherapy",
+        "dentistry",
+        "psychology"
+      ]
+    },
+    "public.user_role": {
+      "name": "user_role",
+      "schema": "public",
+      "values": [
+        "admin",
+        "reception",
+        "professional"
+      ]
+    },
+    "public.waitlist_status": {
+      "name": "waitlist_status",
+      "schema": "public",
+      "values": [
+        "waiting",
+        "fulfilled",
+        "removed"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

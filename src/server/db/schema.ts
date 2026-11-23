@@ -701,3 +701,82 @@ export const appointmentPrices = pgTable(
     index("appointment_prices_insurance_idx").on(table.insuranceId),
   ],
 ).enableRLS();
+
+export const waitlistStatus = pgEnum("waitlist_status", ["waiting", "fulfilled", "removed"]);
+
+export type WaitlistStatus = (typeof waitlistStatus.enumValues)[number];
+
+/**
+ * Lista de espera (Fase 3B): quem aguarda vaga para um SERVIÇO, com profissional e preferência de
+ * dias e horários opcionais. Só admin e recepção leem e gravam; NENHUMA política para o profissional
+ * (a espera é gestão da recepção). Sem DELETE para ninguém: tirar da espera é `removed`; atender é
+ * `fulfilled` (com o `appointment_id` do atendimento criado). Paciente e serviço são imutáveis (para
+ * mudar, tira-se e põe-se de novo); a preferência só muda enquanto `waiting`.
+ *
+ * `professional_id` nulo = qualquer profissional que ofereça o serviço (a oferta é conferida no
+ * servidor, como em `appointments`); a FK composta garante a mesma especialidade e, com nulo, não
+ * confere nada (MATCH SIMPLE). `weekdays` vazio = qualquer dia (0 = domingo a 6); faixa nula =
+ * qualquer horário (minutos desde a meia-noite de Brasília, fim até 1440). A nota é texto livre:
+ * nunca vai a log, URL ou erro. Quem encerrou e quando (`closed_*`) vêm de um gatilho, não do cliente.
+ */
+export const waitlistEntries = pgTable(
+  "waitlist_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    patientId: uuid("patient_id")
+      .notNull()
+      .references(() => patients.id, { onDelete: "restrict" }),
+    serviceId: uuid("service_id").notNull(),
+    professionalId: uuid("professional_id"),
+    specialty: specialty("specialty").notNull(),
+    weekdays: smallint("weekdays").array().notNull().default(sql`'{}'::smallint[]`),
+    startMinute: smallint("start_minute"),
+    endMinute: smallint("end_minute"),
+    note: text("note"),
+    status: waitlistStatus("status").notNull().default("waiting"),
+    appointmentId: uuid("appointment_id").references(() => appointments.id, { onDelete: "restrict" }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    closedBy: uuid("closed_by").references(() => profiles.id, { onDelete: "restrict" }),
+    createdBy: uuid("created_by")
+      .notNull()
+      .default(sql`auth.uid()`)
+      .references(() => profiles.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "waitlist_entries_service_fk",
+      columns: [table.serviceId, table.specialty],
+      foreignColumns: [services.id, services.specialty],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "waitlist_entries_professional_fk",
+      columns: [table.professionalId, table.specialty],
+      foreignColumns: [professionals.id, professionals.specialty],
+    }).onDelete("restrict"),
+    check(
+      "waitlist_entries_weekdays_check",
+      sql`coalesce(array_ndims(${table.weekdays}), 1) = 1 and cardinality(${table.weekdays}) <= 7 and ${table.weekdays} <@ array[0,1,2,3,4,5,6]::smallint[]`,
+    ),
+    check(
+      "waitlist_entries_window_check",
+      sql`(${table.startMinute} is null and ${table.endMinute} is null) or (${table.startMinute} is not null and ${table.endMinute} is not null and ${table.startMinute} between 0 and 1435 and ${table.endMinute} between 5 and 1440 and ${table.startMinute} < ${table.endMinute} and ${table.startMinute} % 5 = 0 and ${table.endMinute} % 5 = 0)`,
+    ),
+    check("waitlist_entries_note_check", optionalText(table.note, 200)),
+    // Atendida ⇔ aponta para o atendimento; aberta ⇔ sem data de encerramento.
+    check("waitlist_entries_fulfilled_check", sql`(${table.status} = 'fulfilled') = (${table.appointmentId} is not null)`),
+    check("waitlist_entries_closed_check", sql`(${table.status} = 'waiting') = (${table.closedAt} is null)`),
+    // Quem encerrou e quando andam juntos.
+    check("waitlist_entries_closed_by_check", sql`(${table.closedAt} is null) = (${table.closedBy} is null)`),
+    // Um atendimento atende UMA espera só.
+    uniqueIndex("waitlist_entries_appointment_uq")
+      .on(table.appointmentId)
+      .where(sql`${table.appointmentId} is not null`),
+    // Uma espera ABERTA por paciente, serviço e profissional ("qualquer" conta como um só).
+    uniqueIndex("waitlist_entries_open_uq")
+      .on(table.patientId, table.serviceId, sql`coalesce(${table.professionalId}, '00000000-0000-0000-0000-000000000000'::uuid)`)
+      .where(sql`${table.status} = 'waiting'`),
+    index("waitlist_entries_status_idx").on(table.status, table.createdAt),
+    index("waitlist_entries_patient_idx").on(table.patientId),
+  ],
+).enableRLS();

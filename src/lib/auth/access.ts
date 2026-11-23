@@ -8,6 +8,8 @@ import type { UserRole } from "@/server/db/schema";
 const SCREEN_ACCESS: ReadonlyMap<string, readonly UserRole[]> = new Map([
   ["dashboard", ["admin", "reception", "professional"]],
   ["agenda", ["admin", "reception", "professional"]],
+  // Lista de espera: gestão da equipe. O profissional não a vê (nem há política de RLS para ele).
+  ["lista-espera", ["admin", "reception"]],
   ["pacientes", ["admin", "reception", "professional"]],
   ["financeiro", ["admin", "reception"]],
   // Profissionais: recepção vê todos; o profissional vê SÓ o próprio cadastro (a RLS devolve 1 linha).

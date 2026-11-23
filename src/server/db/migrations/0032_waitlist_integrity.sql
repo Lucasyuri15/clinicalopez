@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "waitlist_entries_appointment_uq" ON "waitlist_entries" USING btree ("appointment_id") WHERE "waitlist_entries"."appointment_id" is not null;--> statement-breakpoint
+ALTER TABLE "waitlist_entries" ADD CONSTRAINT "waitlist_entries_closed_by_check" CHECK (("waitlist_entries"."closed_at" is null) = ("waitlist_entries"."closed_by" is null));

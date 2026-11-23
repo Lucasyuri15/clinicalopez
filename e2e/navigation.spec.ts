@@ -9,6 +9,7 @@ test.skip(!HAS_SUPABASE, "Sem .env.local do Supabase dev: e2e de autenticação 
 const PAGES = [
   { label: "Dashboard", href: "/dashboard" },
   { label: "Agenda", href: "/agenda" },
+  { label: "Lista de espera", href: "/lista-espera" },
   { label: "Pacientes", href: "/pacientes" },
   { label: "Profissionais", href: "/profissionais" },
   { label: "Serviços", href: "/servicos" },
