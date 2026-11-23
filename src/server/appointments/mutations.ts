@@ -38,6 +38,7 @@ import type { AppointmentUser } from "./queries";
  *    da grade ou em cima de uma folga/bloqueio (sem encaixe: decisão do dono);
  *  - `conflict-professional` / `conflict-patient`: o BANCO recusou a sobreposição (exclusão), sem
  *    revelar o outro atendimento;
+ *  - `nothing-fits`: nenhuma data de uma série cabe (nada é gravado);
  *  - `changed`: o atendimento já não está nesse estado (outra pessoa mudou antes); `too-early`:
  *    Realizada/Falta só depois do início; `not-allowed`: o papel não pode essa mudança;
  *  - `denied`: o banco recusou (sem permissão, valor inválido...); `busy`: deadlock/serialização,
@@ -52,6 +53,7 @@ export type AppointmentFailure =
   | "time-off"
   | "conflict-professional"
   | "conflict-patient"
+  | "nothing-fits"
   | "changed"
   | "too-early"
   | "not-allowed"
@@ -61,13 +63,13 @@ export type AppointmentFailure =
 export type AppointmentResult = { ok: true; id: string } | { ok: false; reason: AppointmentFailure };
 
 /** Lançada dentro da transação para DESFAZÊ-LA e devolver um resultado já conhecido. */
-class Abort extends Error {
+export class Abort extends Error {
   constructor(readonly reason: AppointmentFailure) {
     super(reason);
   }
 }
 
-const OPEN = ["scheduled", "confirmed"] as const;
+export const OPEN = ["scheduled", "confirmed"] as const;
 
 /**
  * Mapeia o erro do banco. `onPermission`: o que um 42501 significa naquela operação (criar = `denied`;
@@ -78,7 +80,7 @@ function toFailure(
   error: unknown,
   onPermission: AppointmentFailure,
   onCheck: AppointmentFailure,
-): AppointmentResult {
+): Extract<AppointmentResult, { ok: false }> {
   if (error instanceof Abort) return { ok: false, reason: error.reason };
   switch (pgErrorCode(error)) {
     case "23P01": // exclusão: sobreposição
@@ -96,6 +98,7 @@ function toFailure(
       return { ok: false, reason: "denied" };
     case "40P01": // deadlock
     case "40001": // falha de serialização
+    case "55P03": // lock_timeout: a linha ficou presa por outra transação (pedido simultâneo)
       return { ok: false, reason: "busy" };
     default:
       // Erro inesperado (conexão...): não engolir, mas SEM a consulta e os parâmetros no log.
@@ -109,11 +112,11 @@ function toFailure(
  * externo, então repetir é seguro, e na repetição a que perdeu já enxerga a vencedora e devolve o
  * conflito de verdade (em vez de "sistema ocupado").
  */
-async function guarded(
-  run: () => Promise<AppointmentResult>,
+export async function guarded<T extends { ok: boolean }>(
+  run: () => Promise<T>,
   onPermission: AppointmentFailure,
   onCheck: AppointmentFailure,
-): Promise<AppointmentResult> {
+): Promise<T | Extract<AppointmentResult, { ok: false }>> {
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await run();
@@ -133,7 +136,7 @@ const slotFailure: Record<SlotReason, AppointmentFailure> = {
 };
 
 /** Toma a trava COMPARTILHADA da agenda do profissional (a folga/semana nova, exclusiva, espera). */
-async function lockSchedule(tx: Tx, professionalId: string): Promise<void> {
+export async function lockSchedule(tx: Tx, professionalId: string): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock_shared(hashtextextended(${scheduleLockKey(professionalId)}, 0))`);
 }
 
@@ -193,6 +196,98 @@ async function resolvePrice(
   return chosen ? { priceCents: chosen.priceCents, insuranceId: chosen.insuranceId } : null;
 }
 
+/** O que uma reserva precisa saber antes de gravar (lido UMA vez e reaproveitado por cada sessão de uma série). */
+export type BookingContext = {
+  professionalId: string;
+  patientId: string;
+  serviceId: string;
+  specialty: typeof professionals.$inferSelect.specialty;
+  /** O valor a copiar do serviço (convênio do paciente, senão o particular, senão nenhum). */
+  price: { priceCents: number; insuranceId: string | null } | null;
+};
+
+/**
+ * Confere profissional ativo, serviço oferecido e ativo, e paciente (nesta ordem) e resolve o valor a
+ * copiar. Devolve o contexto da reserva ou lança `Abort` (`not-found`, `service-not-offered`). Quem
+ * chama já tomou a trava da agenda do profissional.
+ */
+export async function loadBookingContext(
+  tx: Tx,
+  input: { patientId: string; professionalId: string; serviceId: string },
+  options: { price?: boolean } = {},
+): Promise<BookingContext> {
+  const [professional] = await tx
+    .select({ id: professionals.id, specialty: professionals.specialty })
+    .from(professionals)
+    .where(and(eq(professionals.id, input.professionalId), isNull(professionals.deletedAt), eq(professionals.active, true)));
+  if (!professional) throw new Abort("not-found");
+
+  const [offered] = await tx
+    .select({ serviceId: professionalServices.serviceId })
+    .from(professionalServices)
+    .innerJoin(services, eq(services.id, professionalServices.serviceId))
+    .where(
+      and(
+        eq(professionalServices.professionalId, input.professionalId),
+        eq(professionalServices.serviceId, input.serviceId),
+        isNull(services.deletedAt),
+        eq(services.active, true),
+      ),
+    );
+  if (!offered) throw new Abort("service-not-offered");
+
+  const [patient] = await tx
+    .select({ id: patients.id })
+    .from(patients)
+    .where(and(eq(patients.id, input.patientId), isNull(patients.deletedAt)));
+  if (!patient) throw new Abort("not-found");
+
+  // A prévia só informa e não grava: dispensa a leitura do valor (3 idas ao banco a menos).
+  const price = options.price === false ? null : await resolvePrice(tx, input.serviceId, input.patientId);
+  return {
+    professionalId: input.professionalId,
+    patientId: input.patientId,
+    serviceId: input.serviceId,
+    specialty: professional.specialty,
+    price,
+  };
+}
+
+/**
+ * Grava UM atendimento e o valor copiado (na mesma transação, como a RLS exige). `seriesId` liga a
+ * sessão a uma série (nulo = avulso). O conflito de horário é decidido pelo BANCO: um 23P01 sobe.
+ */
+export async function insertOccurrence(
+  tx: Tx,
+  ctx: BookingContext,
+  slot: { startsAt: Date; endsAt: Date },
+  seriesId: string | null,
+): Promise<string> {
+  const [row] = await tx
+    .insert(appointments)
+    .values({
+      seriesId,
+      professionalId: ctx.professionalId,
+      patientId: ctx.patientId,
+      serviceId: ctx.serviceId,
+      specialty: ctx.specialty,
+      startsAt: slot.startsAt,
+      endsAt: slot.endsAt,
+    })
+    .returning({ id: appointments.id });
+  if (!row) throw new Abort("denied");
+
+  if (ctx.price) {
+    await tx.insert(appointmentPrices).values({ appointmentId: row.id, priceCents: ctx.price.priceCents, insuranceId: ctx.price.insuranceId });
+  }
+  return row.id;
+}
+
+/** Garante o vínculo paciente↔profissional (o profissional passa a ver o cadastro básico). Idempotente. */
+export async function linkPatient(tx: Tx, ctx: Pick<BookingContext, "patientId" | "professionalId">): Promise<void> {
+  await tx.insert(patientProfessionals).values({ patientId: ctx.patientId, professionalId: ctx.professionalId }).onConflictDoNothing();
+}
+
 /**
  * Agenda um atendimento. Numa única transação: trava compartilhada da agenda do profissional → confere
  * profissional ativo, serviço oferecido e ativo, paciente → início não passado → grade e folgas →
@@ -209,59 +304,14 @@ export function createAppointment(
     () =>
       withUser(user, async (tx): Promise<AppointmentResult> => {
         await lockSchedule(tx, input.professionalId);
-
-        const [professional] = await tx
-          .select({ id: professionals.id, specialty: professionals.specialty })
-          .from(professionals)
-          .where(and(eq(professionals.id, input.professionalId), isNull(professionals.deletedAt), eq(professionals.active, true)));
-        if (!professional) throw new Abort("not-found");
-
-        const [offered] = await tx
-          .select({ serviceId: professionalServices.serviceId })
-          .from(professionalServices)
-          .innerJoin(services, eq(services.id, professionalServices.serviceId))
-          .where(
-            and(
-              eq(professionalServices.professionalId, input.professionalId),
-              eq(professionalServices.serviceId, input.serviceId),
-              isNull(services.deletedAt),
-              eq(services.active, true),
-            ),
-          );
-        if (!offered) throw new Abort("service-not-offered");
-
-        const [patient] = await tx
-          .select({ id: patients.id })
-          .from(patients)
-          .where(and(eq(patients.id, input.patientId), isNull(patients.deletedAt)));
-        if (!patient) throw new Abort("not-found");
+        const ctx = await loadBookingContext(tx, input);
 
         if (input.startsAt.getTime() < now.getTime()) throw new Abort("past");
         await assertSlot(tx, input.professionalId, input.startsAt, input.endsAt);
 
-        const price = await resolvePrice(tx, input.serviceId, input.patientId);
-
-        const [row] = await tx
-          .insert(appointments)
-          .values({
-            professionalId: input.professionalId,
-            patientId: input.patientId,
-            serviceId: input.serviceId,
-            specialty: professional.specialty,
-            startsAt: input.startsAt,
-            endsAt: input.endsAt,
-          })
-          .returning({ id: appointments.id });
-        if (!row) throw new Abort("denied");
-
-        if (price) {
-          await tx.insert(appointmentPrices).values({ appointmentId: row.id, priceCents: price.priceCents, insuranceId: price.insuranceId });
-        }
-        await tx
-          .insert(patientProfessionals)
-          .values({ patientId: input.patientId, professionalId: input.professionalId })
-          .onConflictDoNothing();
-        return { ok: true, id: row.id };
+        const id = await insertOccurrence(tx, ctx, input, null);
+        await linkPatient(tx, ctx);
+        return { ok: true, id };
       }),
     "denied",
     "denied",
