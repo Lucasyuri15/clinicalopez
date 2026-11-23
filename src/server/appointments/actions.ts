@@ -10,6 +10,7 @@ import {
 } from "@/lib/appointments/schemas";
 import { requireRole } from "@/server/auth/session";
 import type { CatalogFormState } from "@/server/catalog/actions";
+import { findCandidates } from "@/server/waitlist/candidates";
 
 import { FAILURE_MESSAGES } from "./messages";
 import {
@@ -32,6 +33,18 @@ import {
  * DADO SENSÍVEL: nada daqui é logado.
  */
 export type AppointmentFormState = CatalogFormState;
+
+/**
+ * O que a gaveta de cancelar recebe da lista de espera (Fase 3B-2): o horário que vagou e quem cabe
+ * nele. Datas em TEXTO (instante UTC) e só o que a tela mostra; o id da espera serve para Agendar, e
+ * o servidor lê o resto de novo. Só a equipe cancela, então só a equipe recebe isto.
+ */
+export type WaitlistSuggestion = {
+  professionalId: string;
+  startsAt: string;
+  candidates: { entryId: string; patientName: string; serviceName: string; endsAt: string }[];
+};
+export type CancelFormState = (NonNullable<CatalogFormState> & { suggestion?: WaitlistSuggestion }) | undefined;
 
 
 function text(formData: FormData, name: string): string {
@@ -81,14 +94,40 @@ export async function rescheduleAppointmentAction(
 }
 
 export async function cancelAppointmentAction(
-  _prevState: AppointmentFormState,
+  _prevState: CancelFormState,
   formData: FormData,
-): Promise<AppointmentFormState> {
+): Promise<CancelFormState> {
   const staff = await requireRole("admin", "reception");
   const values = pick(formData, ["id", "reason"] as const);
   const parsed = cancelAppointmentSchema.safeParse(values);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? FAILURE_MESSAGES.generic, values };
-  return outcome(await cancelAppointment({ userId: staff.userId }, parsed.data), values);
+
+  const user = { userId: staff.userId };
+  const result = await cancelAppointment(user, parsed.data);
+  const state = outcome(result, values);
+  if (!result.ok) return state;
+
+  // A sugestão vem DEPOIS de cancelar e à prova de falha: o cancelamento já valeu e nunca falha por
+  // causa da lista de espera (nada da espera vai para log ou erro).
+  try {
+    const candidates = await findCandidates(user, result.freed);
+    if (candidates.length === 0) return state;
+    return {
+      ...state,
+      suggestion: {
+        professionalId: result.freed.professionalId,
+        startsAt: result.freed.startsAt.toISOString(),
+        candidates: candidates.map(({ entryId, patientName, serviceName, endsAt }) => ({
+          entryId,
+          patientName,
+          serviceName,
+          endsAt: endsAt.toISOString(),
+        })),
+      },
+    };
+  } catch {
+    return state;
+  }
 }
 
 /** Confirmar, Realizada ou Falta. O papel que decide o mapa de status vem da sessão. */

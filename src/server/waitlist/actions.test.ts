@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   addEntry: vi.fn(),
   updateEntry: vi.fn(),
   removeEntry: vi.fn(),
+  bookFromWaitlist: vi.fn(),
   revalidatePath: vi.fn(),
 }));
 
@@ -16,13 +17,14 @@ class RedirectSignal extends Error {
 
 vi.mock("@/server/auth/session", () => ({ requireRole: mocks.requireRole }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
+vi.mock("./book", () => ({ bookFromWaitlist: mocks.bookFromWaitlist }));
 vi.mock("./mutations", () => ({
   addEntry: mocks.addEntry,
   updateEntry: mocks.updateEntry,
   removeEntry: mocks.removeEntry,
 }));
 
-import { addWaitlistAction, removeWaitlistAction, updateWaitlistAction } from "./actions";
+import { addWaitlistAction, bookFromWaitlistAction, removeWaitlistAction, updateWaitlistAction } from "./actions";
 import { WAITLIST_MESSAGES } from "./messages";
 
 const ADMIN = { userId: "11111111-1111-4111-8111-111111111111", role: "admin", fullName: "Admin Ficticio" };
@@ -52,7 +54,9 @@ const addForm = (over: Record<string, string | string[]> = {}) =>
   form({ patientId: PATIENT, serviceId: SERVICE, ...preference(), ...over });
 const updateForm = (over: Record<string, string | string[]> = {}) => form({ id: ID, ...preference(), ...over });
 
-const allMutations = [mocks.addEntry, mocks.updateEntry, mocks.removeEntry];
+const allMutations = [mocks.addEntry, mocks.updateEntry, mocks.removeEntry, mocks.bookFromWaitlist];
+const bookForm = (over: Record<string, string> = {}) =>
+  form({ entryId: ID, professionalId: PROFESSIONAL_ID, startsAt: "2031-06-02T12:00:00.000Z", ...over });
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -60,12 +64,14 @@ beforeEach(() => {
   mocks.addEntry.mockResolvedValue({ ok: true, id: ID });
   mocks.updateEntry.mockResolvedValue({ ok: true, id: ID });
   mocks.removeEntry.mockResolvedValue({ ok: true, id: ID });
+  mocks.bookFromWaitlist.mockResolvedValue({ ok: true, id: ID });
 });
 
 const actions: Array<[string, () => Promise<unknown>]> = [
   ["addWaitlistAction", () => addWaitlistAction(undefined, addForm())],
   ["updateWaitlistAction", () => updateWaitlistAction(undefined, updateForm())],
   ["removeWaitlistAction", () => removeWaitlistAction(undefined, form({ id: ID }))],
+  ["bookFromWaitlistAction", () => bookFromWaitlistAction(undefined, bookForm())],
 ];
 
 describe("todas as ações da lista de espera exigem admin ou recepção ANTES de qualquer coisa", () => {
@@ -156,5 +162,49 @@ describe("removeWaitlistAction", () => {
     expect(mocks.removeEntry).not.toHaveBeenCalled();
     mocks.removeEntry.mockResolvedValue({ ok: false, reason: "not-found" });
     expect(await removeWaitlistAction(undefined, form({ id: ID }))).toMatchObject({ error: WAITLIST_MESSAGES["not-found"] });
+  });
+});
+
+describe("bookFromWaitlistAction", () => {
+  it("agenda com o usuário da SESSÃO e só a espera, o profissional e o início do formulário", async () => {
+    mocks.requireRole.mockResolvedValue(ADMIN);
+    const data = bookForm({ userId: OTHER_USER, patientId: PATIENT, serviceId: SERVICE, endsAt: "2031-06-02T23:00:00.000Z" });
+    expect(await bookFromWaitlistAction(undefined, data)).toEqual({ success: true });
+    expect(mocks.bookFromWaitlist).toHaveBeenCalledTimes(1);
+    const [user, input] = mocks.bookFromWaitlist.mock.calls[0]!;
+    expect(user).toEqual({ userId: ADMIN.userId });
+    expect(input).toEqual({ entryId: ID, professionalId: PROFESSIONAL_ID, startsAt: new Date("2031-06-02T12:00:00.000Z") });
+  });
+
+  it("sucesso atualiza a agenda, a lista de espera e a ficha do paciente (nasce o vínculo)", async () => {
+    await bookFromWaitlistAction(undefined, bookForm());
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/agenda");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/lista-espera");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/pacientes/[id]", "page");
+  });
+
+  it("entrada inválida: mensagem fixa e nada é gravado", async () => {
+    expect(await bookFromWaitlistAction(undefined, bookForm({ startsAt: "amanhã" }))).toMatchObject({ error: expect.any(String) });
+    expect(await bookFromWaitlistAction(undefined, new FormData())).toMatchObject({ error: expect.any(String) });
+    expect(mocks.bookFromWaitlist).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  const reasons: Array<[string, string]> = [
+    ["not-found", "Esta espera não está mais disponível. Atualize a página."],
+    ["changed", "Esta espera já foi atendida ou retirada da lista. Atualize a página."],
+    ["service-not-offered", "Este profissional não realiza o serviço escolhido."],
+    ["past", "Esse horário já passou."],
+    ["outside-grid", "Esse horário está fora do atendimento do profissional."],
+    ["time-off", "O profissional tem uma folga ou bloqueio nesse horário."],
+    ["conflict-professional", "O profissional já tem um atendimento nesse horário."],
+    ["conflict-patient", "O paciente já tem um atendimento nesse horário."],
+    ["denied", "Não foi possível salvar. Confira os dados e tente de novo."],
+    ["busy", "O sistema estava ocupado. Tente de novo."],
+  ];
+  it.each(reasons)("recusa %s vira mensagem fixa e não revalida", async (reason, message) => {
+    mocks.bookFromWaitlist.mockResolvedValue({ ok: false, reason });
+    expect(await bookFromWaitlistAction(undefined, bookForm())).toEqual({ error: message });
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 });

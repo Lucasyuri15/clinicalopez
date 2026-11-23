@@ -15,10 +15,10 @@ Spec: `docs/specs/2026-11-23-fase-3b-lista-espera.md`. Branch `feat/fase-3b-espe
 - [x] **T10** Docs da parte e **revisão independente** (migração/RLS/gatilho e dados; obrigatória).
 
 ## 3B-2 — Sugestão e agendar
-- [ ] **T11** `cancelAppointment` devolve o horário liberado (professional, especialidade, início, fim) sem mudar o comportamento (+ teste).
-- [ ] **T12** `findCandidates` (+ testes de dados: cabe, outro dia, fora da faixa, outro profissional, serviço não oferecido, conflito do paciente, passado, folga, ordem de chegada, teto de 10).
-- [ ] **T13** `bookFromWaitlist` (exporta `assertSlot`; reusa `guarded`, `lockSchedule`, `loadBookingContext`, `insertOccurrence`, `linkPatient`) (+ testes: atômico, espera já fechada desfaz o atendimento, duas esperas no mesmo horário, corrida).
-- [ ] **T14** Ações `cancelAppointmentAction` (candidatos à prova de falha) e `bookFromWaitlistAction` + testes (a falha da busca não derruba o cancelamento).
-- [ ] **T15** Painel na gaveta de cancelar (`keepOpen` + `SummaryPanel`, cartão por candidato, botão **Agendar**).
-- [ ] **T16** e2e do fluxo completo (cadastra → cancela → vê o candidato → agenda com um clique; sem espera, a gaveta fecha como hoje; profissional sem nada).
-- [ ] **T17** Docs (`PRD.md` 4.2, `AGENTS.md`, `STATUS.md`, spec), revisão independente das telas e revisão final da branch; verificação completa (`lint`, `typecheck`, `test`, `build`, `test:e2e`) e conferência no navegador.
+- [x] **T11** `cancelAppointment` devolve o horário liberado (professional, especialidade, início, fim) sem mudar o comportamento (+ teste).
+- [x] **T12** `findCandidates` (+ testes de dados: cabe, outro dia, fora da faixa, outro profissional, serviço não oferecido, conflito do paciente, passado, folga, ordem de chegada, teto de 10).
+- [x] **T13** `bookFromWaitlist` (exporta `assertSlot`; reusa `guarded`, `lockSchedule`, `loadBookingContext`, `insertOccurrence`, `linkPatient`) (+ testes: atômico, espera já fechada desfaz o atendimento, duas esperas no mesmo horário, corrida).
+- [x] **T14** Ações `cancelAppointmentAction` (candidatos à prova de falha) e `bookFromWaitlistAction` + testes (a falha da busca não derruba o cancelamento).
+- [x] **T15** Painel na gaveta de cancelar (`keepOpen` + `SummaryPanel`, cartão por candidato, botão **Agendar**).
+- [x] **T16** e2e do fluxo completo (cadastra → cancela → vê o candidato → agenda com um clique; sem espera, a gaveta fecha como hoje; profissional sem nada).
+- [x] **T17** Docs (`PRD.md` 4.2, `AGENTS.md`, `STATUS.md`, spec), revisão independente das telas e revisão final da branch; verificação completa (`lint`, `typecheck`, `test`, `build`, `test:e2e`) e conferência no navegador. *(feita, exceto a conferência manual no navegador com login e 2FA reais, que depende do usuário.)*

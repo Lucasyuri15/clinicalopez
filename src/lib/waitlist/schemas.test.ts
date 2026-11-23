@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { addWaitlistSchema, NOTE_MAX, removeWaitlistSchema, updateWaitlistSchema } from "./schemas";
+import { addWaitlistSchema, bookFromWaitlistSchema, NOTE_MAX, removeWaitlistSchema, updateWaitlistSchema } from "./schemas";
 
 const PATIENT = "11111111-1111-4111-8111-111111111111";
 const SERVICE = "22222222-2222-4222-8222-222222222222";
@@ -143,5 +143,28 @@ describe("removeWaitlistSchema", () => {
   it("só o id", () => {
     expect(removeWaitlistSchema().safeParse({ id: ENTRY }).data).toEqual({ id: ENTRY });
     expect(removeWaitlistSchema().safeParse({ id: "x" }).success).toBe(false);
+  });
+});
+
+describe("bookFromWaitlistSchema", () => {
+  const raw = { entryId: ENTRY, professionalId: PROFESSIONAL, startsAt: "2031-06-02T12:00:00.000Z" };
+
+  it("devolve a espera, o profissional e o início como Date (só isso: a duração é do servidor)", () => {
+    const result = bookFromWaitlistSchema().safeParse(raw);
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ entryId: ENTRY, professionalId: PROFESSIONAL, startsAt: new Date("2031-06-02T12:00:00.000Z") });
+  });
+
+  it("ignora campos a mais (duração, fim, paciente, serviço)", () => {
+    const result = bookFromWaitlistSchema().safeParse({ ...raw, endsAt: "2031-06-02T13:00:00.000Z", durationMinutes: "600", patientId: PATIENT });
+    expect(Object.keys(result.data ?? {}).sort()).toEqual(["entryId", "professionalId", "startsAt"]);
+  });
+
+  it("recusa id inválido e início que não é um instante UTC válido", () => {
+    expect(issues(bookFromWaitlistSchema().safeParse({ ...raw, entryId: "x" }))).toEqual(["entryId"]);
+    expect(issues(bookFromWaitlistSchema().safeParse({ ...raw, professionalId: "" }))).toEqual(["professionalId"]);
+    for (const startsAt of ["", "amanhã", "2031-06-02", "2031-13-40T10:00:00Z", "2031-06-02T12:00:00"]) {
+      expect(issues(bookFromWaitlistSchema().safeParse({ ...raw, startsAt })), startsAt).toEqual(["startsAt"]);
+    }
   });
 });

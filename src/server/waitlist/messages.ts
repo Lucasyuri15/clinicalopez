@@ -1,3 +1,5 @@
+import { FAILURE_MESSAGES } from "@/server/appointments/messages";
+
 import type { WaitlistFailure } from "./mutations";
 
 /**
@@ -13,4 +15,14 @@ export const WAITLIST_MESSAGES: Record<WaitlistFailure | "generic", string> = {
   changed: "Este registro foi alterado por outra pessoa. Atualize a página.",
   denied: "Não foi possível salvar. Confira os dados e tente de novo.",
   busy: "O sistema estava ocupado. Tente de novo.",
+};
+
+/**
+ * Agendar da espera recusa pelos mesmos motivos da agenda; só duas mensagens falam da ESPERA (o
+ * "atendimento alterado" da agenda confundiria quem clicou em Agendar numa espera que sumiu).
+ */
+export const BOOK_FAILURE_MESSAGES: typeof FAILURE_MESSAGES = {
+  ...FAILURE_MESSAGES,
+  "not-found": "Esta espera não está mais disponível. Atualize a página.",
+  changed: "Esta espera já foi atendida ou retirada da lista. Atualize a página.",
 };

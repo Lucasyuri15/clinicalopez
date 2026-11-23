@@ -2,6 +2,7 @@ import "server-only";
 
 import { and, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
+import type { Specialty } from "@/lib/catalog/labels";
 import { checkSlot, type SlotReason } from "@/lib/schedule/availability";
 import type { WorkRange } from "@/lib/schedule/week";
 import { checkStatusChange, type ActorRole } from "@/lib/appointments/status";
@@ -61,6 +62,11 @@ export type AppointmentFailure =
   | "busy";
 
 export type AppointmentResult = { ok: true; id: string } | { ok: false; reason: AppointmentFailure };
+
+/** O horário que um cancelamento liberou (a 3B-2 procura candidatos na lista de espera com ele). */
+export type FreedSlot = { professionalId: string; specialty: Specialty; startsAt: Date; endsAt: Date };
+
+export type CancelResult = { ok: true; id: string; freed: FreedSlot } | { ok: false; reason: AppointmentFailure };
 
 /** Lançada dentro da transação para DESFAZÊ-LA e devolver um resultado já conhecido. */
 export class Abort extends Error {
@@ -141,7 +147,7 @@ export async function lockSchedule(tx: Tx, professionalId: string): Promise<void
 }
 
 /** Confere o horário na grade e nas folgas do profissional (lidas dentro da trava). */
-async function assertSlot(tx: Tx, professionalId: string, startsAt: Date, endsAt: Date): Promise<void> {
+export async function assertSlot(tx: Tx, professionalId: string, startsAt: Date, endsAt: Date): Promise<void> {
   const rows = await tx
     .select({ weekday: professionalWorkHours.weekday, start: professionalWorkHours.startMinute, end: professionalWorkHours.endMinute })
     .from(professionalWorkHours)
@@ -364,17 +370,29 @@ export function rescheduleAppointment(
   );
 }
 
-/** Cancela com motivo (o motivo é texto livre: nunca em log, URL ou erro). Só em aberto. */
-export function cancelAppointment(user: AppointmentUser, input: { id: string; reason: string }): Promise<AppointmentResult> {
+/**
+ * Cancela com motivo (o motivo é texto livre: nunca em log, URL ou erro). Só em aberto. Devolve também
+ * o horário liberado (`freed`), lido da própria linha cancelada.
+ */
+export function cancelAppointment(user: AppointmentUser, input: { id: string; reason: string }): Promise<CancelResult> {
   return guarded(
     () =>
-      withUser(user, async (tx): Promise<AppointmentResult> => {
+      withUser(user, async (tx): Promise<CancelResult> => {
         const rows = await tx
           .update(appointments)
           .set({ status: "cancelled", cancelReason: input.reason })
           .where(and(eq(appointments.id, input.id), inArray(appointments.status, [...OPEN])))
-          .returning({ id: appointments.id });
-        if (rows[0]) return { ok: true, id: rows[0].id };
+          .returning({
+            id: appointments.id,
+            professionalId: appointments.professionalId,
+            specialty: appointments.specialty,
+            startsAt: appointments.startsAt,
+            endsAt: appointments.endsAt,
+          });
+        if (rows[0]) {
+          const { id, ...freed } = rows[0];
+          return { ok: true, id, freed };
+        }
         const [exists] = await tx.select({ id: appointments.id }).from(appointments).where(eq(appointments.id, input.id));
         throw new Abort(exists ? "changed" : "not-found");
       }),

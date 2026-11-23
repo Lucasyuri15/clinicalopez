@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   rescheduleAppointment: vi.fn(),
   cancelAppointment: vi.fn(),
   changeAppointmentStatus: vi.fn(),
+  findCandidates: vi.fn(),
   revalidatePath: vi.fn(),
 }));
 
@@ -17,6 +18,7 @@ class RedirectSignal extends Error {
 
 vi.mock("@/server/auth/session", () => ({ requireRole: mocks.requireRole }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
+vi.mock("@/server/waitlist/candidates", () => ({ findCandidates: mocks.findCandidates }));
 vi.mock("./mutations", () => ({
   createAppointment: mocks.createAppointment,
   rescheduleAppointment: mocks.rescheduleAppointment,
@@ -39,6 +41,12 @@ const PATIENT = "6f1c1b5e-8a3f-4a0e-9d57-2f6c5f0b7a11";
 const PROFESSIONAL_ID = "0b9f3b2c-5d7e-4f10-8a6b-3c2d1e0f9a88";
 const SERVICE = "9c2d4e6f-1a3b-4c5d-8e7f-0a1b2c3d4e5f";
 const ID = "44444444-4444-4444-8444-444444444444";
+const FREED = {
+  professionalId: PROFESSIONAL_ID,
+  specialty: "physiotherapy",
+  startsAt: new Date("2031-06-02T12:00:00.000Z"),
+  endsAt: new Date("2031-06-02T12:50:00.000Z"),
+};
 
 const form = (fields: Record<string, string>) => {
   const data = new FormData();
@@ -64,6 +72,8 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.requireRole.mockResolvedValue(RECEPTION);
   for (const fn of allMutations) fn.mockResolvedValue({ ok: true, id: ID });
+  mocks.cancelAppointment.mockResolvedValue({ ok: true, id: ID, freed: FREED });
+  mocks.findCandidates.mockResolvedValue([]);
 });
 
 const actions: Array<[string, () => Promise<unknown>, string[]]> = [
@@ -221,5 +231,59 @@ describe("changeStatusAction", () => {
   it.each(["cancelled", "scheduled", "", "feito"])("recusa o status %j (cancelar tem ação própria, com motivo)", async (status) => {
     expect(await changeStatusAction(undefined, form({ id: ID, status }))).toMatchObject({ error: "Status inválido." });
     expect(mocks.changeAppointmentStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe("cancelAppointmentAction: sugestão da lista de espera", () => {
+  const cancel = () => cancelAppointmentAction(undefined, form({ id: ID, reason: "Paciente desistiu" }));
+  const candidate = (over: Record<string, unknown> = {}) => ({
+    entryId: "55555555-5555-4555-8555-555555555555",
+    patientId: PATIENT,
+    patientName: "Paciente Ficticio",
+    serviceId: SERVICE,
+    serviceName: "Sessão",
+    startsAt: FREED.startsAt,
+    endsAt: new Date("2031-06-02T12:50:00.000Z"),
+    ...over,
+  });
+
+  it("sem ninguém na espera, o resultado é o de sempre (a gaveta fecha)", async () => {
+    expect(await cancel()).toEqual({ success: true });
+    expect(mocks.findCandidates).toHaveBeenCalledWith({ userId: RECEPTION.userId }, FREED);
+  });
+
+  it("com candidatos, devolve só o que a tela precisa, com datas em texto (nenhum id de paciente)", async () => {
+    mocks.findCandidates.mockResolvedValue([candidate()]);
+    const result = await cancel();
+    expect(result).toEqual({
+      success: true,
+      suggestion: {
+        professionalId: PROFESSIONAL_ID,
+        startsAt: "2031-06-02T12:00:00.000Z",
+        candidates: [
+          {
+            entryId: "55555555-5555-4555-8555-555555555555",
+            patientName: "Paciente Ficticio",
+            serviceName: "Sessão",
+            endsAt: "2031-06-02T12:50:00.000Z",
+          },
+        ],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain(PATIENT);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/agenda");
+  });
+
+  it("a falha da busca NUNCA derruba o cancelamento: continua sucesso, sem sugestão", async () => {
+    mocks.findCandidates.mockRejectedValue(new Error("falha de conexão"));
+    expect(await cancel()).toEqual({ success: true });
+    expect(mocks.cancelAppointment).toHaveBeenCalledTimes(1);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/agenda");
+  });
+
+  it("cancelamento recusado não procura candidatos", async () => {
+    mocks.cancelAppointment.mockResolvedValue({ ok: false, reason: "changed" });
+    expect(await cancel()).toMatchObject({ error: expect.any(String) });
+    expect(mocks.findCandidates).not.toHaveBeenCalled();
   });
 });
