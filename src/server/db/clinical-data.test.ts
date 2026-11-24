@@ -261,10 +261,10 @@ describe.skipIf(!hasDb)("prontuário: camada de dados (integração, Supabase de
       expect(await actions()).toEqual(["read_history"]);
     });
 
-    it("o log nunca guarda texto: só as colunas de quem, quando, ação, paciente e evolução", async () => {
+    it("o log nunca guarda texto: só as colunas de quem, quando, ação, paciente, evolução e anexo", async () => {
       const columns = await owner`select column_name from information_schema.columns
         where table_schema = 'public' and table_name = 'clinical_access_log' order by column_name`;
-      expect(columns.map((row) => row.column_name)).toEqual(["action", "at", "id", "note_id", "patient_id", "role", "user_id"]);
+      expect(columns.map((row) => row.column_name)).toEqual(["action", "at", "attachment_id", "id", "note_id", "patient_id", "role", "user_id"]);
     });
 
     it("a evolução continua do autor e na lista dele mesmo se o admin corrigir Realizada para Falta", async () => {

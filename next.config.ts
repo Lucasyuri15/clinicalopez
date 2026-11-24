@@ -28,6 +28,13 @@ const nextConfig: NextConfig = {
   // src/lib/security/dynamic-rendering.test.ts. Dados de paciente/agenda são por usuário
   // (RLS) e não devem ser cacheados de forma compartilhada de qualquer modo.
   poweredByHeader: false,
+  experimental: {
+    // Anexos clínicos (Fase 4B-1): o arquivo (até 4 MiB) sobe por uma Server Action, em multipart. O
+    // padrão do Next é 1 MB. 5 MB deixa folga para o multipart e fica abaixo do teto da Vercel
+    // (4,5 MB no corpo de uma função: por isso o limite de 4 MiB por arquivo). A ação confere o
+    // tamanho antes de ler o arquivo; o banco e o bucket também o impõem.
+    serverActions: { bodySizeLimit: "5mb" },
+  },
   async redirects() {
     return [{ source: "/", destination: "/dashboard", permanent: false }];
   },

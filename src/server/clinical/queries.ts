@@ -5,6 +5,7 @@ import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { withoutQueryDetails } from "@/server/db/pg-error";
 import {
   appointments,
+  clinicalAttachments,
   clinicalNoteAddenda,
   clinicalNotes,
   type ClinicalNoteStatus,
@@ -49,7 +50,30 @@ export type NoteView = {
 /** Atendimento Realizado do profissional que ainda não tem evolução. */
 export type PendingView = { appointmentId: string; startsAt: Date; serviceName: string };
 
-export type PatientRecord = { notes: NoteView[]; pending: PendingView[] };
+/**
+ * Anexo clínico (Fase 4B-1). O arquivo NÃO vem aqui (só os metadados): quem o entrega é a abertura
+ * (`openAttachment`), que registra cada acesso. `originalName` é texto sensível: só para quem pode ler.
+ */
+export type AttachmentView = {
+  id: string;
+  originalName: string;
+  contentType: string;
+  sizeBytes: number;
+  createdAt: Date;
+  /** Início do atendimento ao qual foi ligado, se houve. */
+  appointmentStartsAt: Date | null;
+  professionalName: string;
+  /** Preenchido só para o admin (o autor não recebe os removidos). */
+  removedAt: Date | null;
+};
+
+export type PatientRecord = {
+  notes: NoteView[];
+  pending: PendingView[];
+  attachments: AttachmentView[];
+  /** Atendimentos Realizados do profissional com o paciente (para ligar um anexo a um deles); vazio para o admin. */
+  doneAppointments: PendingView[];
+};
 
 export async function getPatientRecord(user: ClinicalUser, patientId: string): Promise<PatientRecord | null> {
   if (user.role === "reception") return null;
@@ -122,11 +146,45 @@ export async function getPatientRecord(user: ClinicalUser, patientId: string): P
               .then((items) => items.map((item) => ({ ...item, serviceName: item.serviceName ?? REMOVED_SERVICE })))
           : [];
 
+      // Anexos: o autor só recebe os não removidos; o admin recebe todos, com a marca de removido.
+      const attachments: AttachmentView[] = await tx
+        .select({
+          id: clinicalAttachments.id,
+          originalName: clinicalAttachments.originalName,
+          contentType: clinicalAttachments.contentType,
+          sizeBytes: clinicalAttachments.sizeBytes,
+          createdAt: clinicalAttachments.createdAt,
+          appointmentStartsAt: appointments.startsAt,
+          professionalName: professionals.fullName,
+          removedAt: clinicalAttachments.removedAt,
+        })
+        .from(clinicalAttachments)
+        .leftJoin(appointments, eq(appointments.id, clinicalAttachments.appointmentId))
+        .innerJoin(professionals, eq(professionals.id, clinicalAttachments.professionalId))
+        .where(
+          user.role === "professional"
+            ? and(eq(clinicalAttachments.patientId, patientId), isNull(clinicalAttachments.removedAt))
+            : eq(clinicalAttachments.patientId, patientId),
+        )
+        .orderBy(desc(clinicalAttachments.createdAt));
+
+      const doneAppointments: PendingView[] =
+        user.role === "professional"
+          ? await tx
+              .select({ appointmentId: appointments.id, startsAt: appointments.startsAt, serviceName: services.name })
+              .from(appointments)
+              .leftJoin(services, eq(services.id, appointments.serviceId))
+              .where(and(eq(appointments.patientId, patientId), eq(appointments.status, "done")))
+              .orderBy(desc(appointments.startsAt))
+              .then((items) => items.map((item) => ({ ...item, serviceName: item.serviceName ?? REMOVED_SERVICE })))
+          : [];
+
+      // A listagem dos anexos entra no MESMO `read_history`: o que se registra por arquivo é a ABERTURA.
       await recordAccess(tx, [
         { action: "read_history", patientId },
         ...notes.map((note) => ({ action: "read_note" as const, patientId, noteId: note.id })),
       ]);
-      return { notes, pending };
+      return { notes, pending, attachments, doneAppointments };
     });
   } catch (error) {
     throw withoutQueryDetails(error);

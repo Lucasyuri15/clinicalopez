@@ -562,6 +562,9 @@ export async function deletePatients(tag: string): Promise<void> {
       // Prontuário primeiro: log, adendos e evoluções referenciam o paciente e o atendimento (FK restrict).
       await tx`delete from public.clinical_access_log where patient_id in
         (select id from public.patients where full_name like ${like})`;
+      // Anexos (só os metadados: o arquivo no Storage só some pela API; ver a spec da 4B-1).
+      await tx`delete from public.clinical_attachments where patient_id in
+        (select id from public.patients where full_name like ${like})`;
       await tx`delete from public.clinical_note_addenda where note_id in
         (select id from public.clinical_notes where patient_id in
           (select id from public.patients where full_name like ${like}))`;
@@ -1018,6 +1021,67 @@ export async function clinicalState(tag: string): Promise<ClinicalState> {
       where pa.full_name like ${like}
       order by l.id`;
     return { notes: notes as unknown as ClinicalState["notes"], log: log as unknown as ClinicalState["log"] };
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+/**
+ * Cria um anexo clínico (só a LINHA: nenhum arquivo no Storage) como DONO do banco, para provar que o
+ * profissional não vê o anexo do colega e que o admin lê e vê o removido. Só nomes de e2e etiquetados.
+ */
+export async function seedClinicalAttachment(input: {
+  patientName: string;
+  professionalName: string;
+  authorProfileId: string;
+  name: string;
+  removed?: boolean;
+}): Promise<string> {
+  for (const name of [input.patientName, input.professionalName]) {
+    if (!TAGGED_NAME.test(name)) throw new Error("Recusado: só uso nomes de e2e etiquetados.");
+  }
+  const sql = connect();
+  try {
+    const [patient] = await sql`select id from public.patients where full_name = ${input.patientName}`;
+    const [professional] = await sql`select id from public.professionals where full_name = ${input.professionalName}`;
+    if (!patient || !professional) throw new Error("Dados fictícios do anexo não encontrados.");
+    const path = crypto.randomUUID();
+    const [row] = await sql`insert into public.clinical_attachments
+      (patient_id, professional_id, storage_path, original_name, content_type, size_bytes, sha256, created_by, removed_at, removed_by)
+      values (${patient.id}, ${professional.id}, ${path}, ${input.name}, 'application/pdf', 1234, ${"c".repeat(64)}, ${input.authorProfileId},
+        ${input.removed ? new Date() : null}, ${input.removed ? input.authorProfileId : null})
+      returning id`;
+    return row!.id as string;
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+export type AttachmentsState = {
+  attachments: { patient: string; professional: string; name: string; contentType: string; sizeBytes: number; appointmentId: string | null; removed: boolean }[];
+  log: { action: string; role: string }[];
+};
+
+/** Estado REAL gravado dos anexos e do log dos pacientes do teste (para provar o que a tela gravou). */
+export async function attachmentsState(tag: string): Promise<AttachmentsState> {
+  if (!/^\[e2e-cat [0-9a-f]{8}\]$/.test(tag)) throw new Error("Recusado: etiqueta de e2e inválida.");
+  const sql = connect();
+  try {
+    const like = `${tag}%`;
+    const attachments = await sql`
+      select pa.full_name as patient, pr.full_name as professional, a.original_name as name, a.content_type as "contentType",
+        a.size_bytes as "sizeBytes", a.appointment_id as "appointmentId", (a.removed_at is not null) as removed
+      from public.clinical_attachments a
+      join public.patients pa on pa.id = a.patient_id
+      join public.professionals pr on pr.id = a.professional_id
+      where pa.full_name like ${like}
+      order by a.created_at`;
+    const log = await sql`
+      select l.action, l.role from public.clinical_access_log l
+      join public.patients pa on pa.id = l.patient_id
+      where pa.full_name like ${like}
+      order by l.id`;
+    return { attachments: attachments as unknown as AttachmentsState["attachments"], log: log as unknown as AttachmentsState["log"] };
   } finally {
     await sql.end({ timeout: 2 });
   }

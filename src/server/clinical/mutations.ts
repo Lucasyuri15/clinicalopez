@@ -1,12 +1,13 @@
 import "server-only";
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { pgErrorCode, withoutQueryDetails } from "@/server/db/pg-error";
-import { appointments, clinicalNoteAddenda, clinicalNotes, professionals } from "@/server/db/schema";
+import { appointments, clinicalNoteAddenda, clinicalNotes } from "@/server/db/schema";
 import { withUser, type Tx } from "@/server/db/with-user";
 
 import { recordAccess } from "./access-log";
+import { Abort, authorOf } from "./author";
 
 /**
  * Gravações do prontuário (Fase 4A), sempre por `withUser` (a RLS e os gatilhos decidem; a camada de
@@ -28,15 +29,8 @@ export type ClinicalResult = { ok: true; noteId: string } | { ok: false; reason:
 
 export type ClinicalWriter = { userId: string };
 
-/** Lançada dentro da transação para DESFAZÊ-LA e devolver um resultado já conhecido. */
-class Abort extends Error {
-  constructor(readonly reason: ClinicalFailure) {
-    super(reason);
-  }
-}
-
 function toFailure(error: unknown): Extract<ClinicalResult, { ok: false }> {
-  if (error instanceof Abort) return { ok: false, reason: error.reason };
+  if (error instanceof Abort) return { ok: false, reason: error.reason as ClinicalFailure };
   switch (pgErrorCode(error)) {
     case "23505": // o índice único: outro primeiro salvamento do mesmo atendimento ganhou a corrida
     case "40P01": // deadlock
@@ -64,17 +58,6 @@ async function run(user: ClinicalWriter, body: (tx: Tx, professionalId: string) 
   } catch (error) {
     return toFailure(error);
   }
-}
-
-/** O cadastro de profissional ativo e não removido ligado a este login; senão aborta (`denied`). */
-async function authorOf(tx: Tx, userId: string): Promise<string> {
-  const [row] = await tx
-    .select({ id: professionals.id })
-    .from(professionals)
-    .where(and(eq(professionals.profileId, userId), isNull(professionals.deletedAt), eq(professionals.active, true)))
-    .limit(1);
-  if (!row) throw new Abort("denied");
-  return row.id;
 }
 
 /**

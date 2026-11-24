@@ -376,99 +376,113 @@ describe.skipIf(!hasDb)("RLS do prontuário: escrita, constraints e gatilhos (in
     });
   });
 
-  describe("os gatilhos sozinhos (sem o GRANT por coluna e sem a RLS a barrar antes)", () => {
-    /** Como dono, dá UPDATE em todas as colunas e desliga a RLS da evolução DENTRO do savepoint (sempre desfeito). */
-    async function unlockNotes(asOwner: () => Promise<void>, tx: Tx) {
+  describe("os gatilhos sozinhos (numa CÓPIA temporária da tabela: sem GRANT por coluna e sem a RLS a barrar antes)", () => {
+    /**
+     * Cria, na sessão do teste, tabelas TEMPORÁRIAS com as mesmas colunas e linhas e liga a elas os
+     * MESMOS gatilhos (as funções reais `app.clinical_*_guard_*`), sem RLS e com todos os privilégios:
+     * assim só o gatilho decide. Uma tabela temporária não pede lock em tabela compartilhada
+     * (`alter table ... disable row level security` na tabela real pede ACCESS EXCLUSIVE e travava as
+     * outras suítes, que seguram transações abertas e gravam o log: SQLSTATE 55P03).
+     */
+    async function sandbox(asOwner: () => Promise<void>, tx: Tx) {
       await asOwner();
-      await tx.execute(
-        sql`grant update (appointment_id, patient_id, professional_id, created_at, updated_at, finalized_at, finalized_by, id) on public.clinical_notes to authenticated`,
-      );
-      await tx.execute(sql`alter table public.clinical_notes disable row level security`);
+      await tx.execute(sql`create temp table zz_notes (like public.clinical_notes including defaults)`);
+      await tx.execute(sql`insert into zz_notes select * from public.clinical_notes`);
+      await tx.execute(sql`create temp table zz_addenda (like public.clinical_note_addenda including defaults)`);
+      await tx.execute(sql`insert into zz_addenda select * from public.clinical_note_addenda`);
+      await tx.execute(sql`grant select, insert, update on zz_notes, zz_addenda to authenticated`);
+      await tx.execute(sql`create trigger zz_guard_insert before insert on zz_notes for each row execute function app.clinical_notes_guard_insert()`);
+      await tx.execute(sql`create trigger zz_guard_update before update on zz_notes for each row execute function app.clinical_notes_guard_update()`);
+      await tx.execute(sql`create trigger zz_guard_insert before insert on zz_addenda for each row execute function app.clinical_note_addenda_guard_insert()`);
     }
+    const touch = (tx: Tx, id: string, assignments: ReturnType<typeof sql>) =>
+      tx.execute(sql`update zz_notes set ${assignments} where id = ${id} returning id`);
+    const insertNote = (tx: Tx, s: ClinicalSeed, appointmentId: string) =>
+      tx.execute(
+        sql`insert into zz_notes (appointment_id, patient_id, professional_id, body) values (${appointmentId}, ${s.pShared}, ${s.professionalA}, '[teste] evolução nova') returning id`,
+      );
+    const insertAddendum = (tx: Tx, noteId: string) =>
+      tx.execute(sql`insert into zz_addenda (note_id, body) values (${noteId}, '[teste] adendo novo') returning id`);
 
     it.each([
-      ["appointment_id", (s: ClinicalSeed) => ({ appointmentId: s.apAFree })],
-      ["patient_id", (s: ClinicalSeed) => ({ patientId: s.p1 })],
-      ["professional_id", (s: ClinicalSeed) => ({ professionalId: s.professionalB })],
-      ["created_at", () => ({ createdAt: new Date("2020-01-01T00:00:00Z") })],
-      ["finalized_at (num rascunho)", () => ({ finalizedAt: new Date() })],
-      ["finalized_by (num rascunho)", (s: ClinicalSeed) => ({ finalizedBy: s.professionalA })],
-    ])("%s é imutável no rascunho mesmo com privilégio de coluna (42501)", async (_column, change) => {
+      ["appointment_id", (s: ClinicalSeed) => sql`appointment_id = ${s.apAFree}`],
+      ["patient_id", (s: ClinicalSeed) => sql`patient_id = ${s.p1}`],
+      ["professional_id", (s: ClinicalSeed) => sql`professional_id = ${s.professionalB}`],
+      ["created_at", () => sql`created_at = timestamptz '2020-01-01'`],
+      ["finalized_at (num rascunho)", () => sql`finalized_at = now()`],
+      ["finalized_by (num rascunho)", (s: ClinicalSeed) => sql`finalized_by = ${s.professionalA}`],
+    ])("%s é imutável no rascunho (42501)", async (_column, change) => {
       await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
-        await unlockNotes(asOwner, tx);
+        await sandbox(asOwner, tx);
         await as(ids.professional);
-        expect(await attempt(tx, (x) => update(x, s.draftA, change(s) as Partial<NewNote>))).toBe("42501");
+        expect(await attempt(tx, (x) => touch(x, s.draftA, change(s)))).toBe("42501");
       });
     });
 
-    it("a evolução finalizada não muda (42501), mesmo sem a RLS a filtrar", async () => {
+    it("a evolução finalizada não muda (42501)", async () => {
       await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
-        await unlockNotes(asOwner, tx);
+        await sandbox(asOwner, tx);
         await as(ids.professional);
-        expect(await attempt(tx, (x) => update(x, s.noteA, { body: "[teste] mudou" }))).toBe("42501");
-        expect(await attempt(tx, (x) => update(x, s.noteA, { status: "draft" }))).toBe("42501");
-        expect(await attempt(tx, (x) => update(x, s.noteA, { status: "finalized" }))).toBe("42501");
+        expect(await attempt(tx, (x) => touch(x, s.noteA, sql`body = '[teste] mudou'`))).toBe("42501");
+        expect(await attempt(tx, (x) => touch(x, s.noteA, sql`status = 'draft'`))).toBe("42501");
+        expect(await attempt(tx, (x) => touch(x, s.noteA, sql`status = 'finalized'`))).toBe("42501");
       });
     });
 
     it.each(["admin", "reception", "professional2", "stranger", "inactive", "deleted"] as const)(
-      "usuário %s não altera a evolução de A (42501), mesmo sem a RLS",
+      "usuário %s não altera a evolução de A (42501)",
       async (who) => {
         await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
-          await unlockNotes(asOwner, tx);
+          await sandbox(asOwner, tx);
           await as(ids[who]);
-          expect(await attempt(tx, (x) => update(x, s.draftA, { body: "[teste] invasão" }))).toBe("42501");
+          expect(await attempt(tx, (x) => touch(x, s.draftA, sql`body = '[teste] invasão'`))).toBe("42501");
         });
       },
     );
 
-    it("ao finalizar, o banco SOBRESCREVE um `finalized_at` forjado (privilégio dado, RLS desligada)", async () => {
+    it("ao finalizar, o banco SOBRESCREVE um `finalized_at` forjado", async () => {
       await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
-        await unlockNotes(asOwner, tx);
+        await sandbox(asOwner, tx);
         await as(ids.professional);
-        expect(await update(tx, s.draftA, { status: "finalized", finalizedAt: new Date("2020-01-01T00:00:00Z"), finalizedBy: ids.admin })).toHaveLength(1);
+        expect(await touch(tx, s.draftA, sql`status = 'finalized', finalized_at = timestamptz '2020-01-01', finalized_by = ${ids.admin}`)).toHaveLength(1);
         await asOwner();
-        const [row] = await tx.execute<{ same: boolean; by: string }>(
-          sql`select finalized_at = now() as same, finalized_by as by from public.clinical_notes where id = ${s.draftA}`,
-        );
+        const [row] = await tx.execute<{ same: boolean; by: string }>(sql`select finalized_at = now() as same, finalized_by as by from zz_notes where id = ${s.draftA}`);
         expect(row).toEqual({ same: true, by: ids.professional });
       });
     });
 
-    it("sem a RLS, o autor ainda edita e finaliza normalmente (o teste acima não é só uma parede)", async () => {
+    it("o autor ainda edita e finaliza normalmente (o teste acima não é só uma parede)", async () => {
       await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
-        await unlockNotes(asOwner, tx);
+        await sandbox(asOwner, tx);
         await as(ids.professional);
-        expect(await update(tx, s.draftA, { body: "[teste] ok" })).toHaveLength(1);
-        expect(await update(tx, s.draftA, { status: "finalized" })).toHaveLength(1);
+        expect(await touch(tx, s.draftA, sql`body = '[teste] ok'`)).toHaveLength(1);
+        expect(await touch(tx, s.draftA, sql`status = 'finalized'`)).toHaveLength(1);
       });
     });
 
     it("o gatilho de INSERT sozinho: só o autor, só atendimento Realizado e dele", async () => {
       await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
-        await asOwner();
-        await tx.execute(sql`alter table public.clinical_notes disable row level security`);
+        await sandbox(asOwner, tx);
         await as(ids.admin);
-        expect(await attempt(tx, (x) => create(x, nova(s)))).toBe("42501");
+        expect(await attempt(tx, (x) => insertNote(x, s, s.apAFree))).toBe("42501");
         await as(ids.professional2);
-        expect(await attempt(tx, (x) => create(x, nova(s)))).toBe("42501"); // atendimento de A
+        expect(await attempt(tx, (x) => insertNote(x, s, s.apAFree))).toBe("42501"); // atendimento de A
         await as(ids.professional);
-        expect(await attempt(tx, (x) => create(x, nova(s, { appointmentId: s.apAScheduled })))).toBe("23514");
-        expect(await create(tx, nova(s))).toHaveLength(1);
+        expect(await attempt(tx, (x) => insertNote(x, s, s.apAScheduled))).toBe("23514");
+        expect(await insertNote(tx, s, s.apAFree)).toHaveLength(1);
       });
     });
 
     it("o gatilho de INSERT do adendo sozinho: só o autor, só evolução finalizada", async () => {
       await shared.run(async ({ tx, ids, as, asOwner, seed: s }) => {
-        await asOwner();
-        await tx.execute(sql`alter table public.clinical_note_addenda disable row level security`);
+        await sandbox(asOwner, tx);
         await as(ids.admin);
-        expect(await attempt(tx, (x) => addAddendum(x, s.noteA))).toBe("42501");
+        expect(await attempt(tx, (x) => insertAddendum(x, s.noteA))).toBe("42501");
         await as(ids.professional2);
-        expect(await attempt(tx, (x) => addAddendum(x, s.noteA))).toBe("42501");
+        expect(await attempt(tx, (x) => insertAddendum(x, s.noteA))).toBe("42501");
         await as(ids.professional);
-        expect(await attempt(tx, (x) => addAddendum(x, s.draftA))).toBe("23514");
-        expect(await addAddendum(tx, s.noteA)).toHaveLength(1);
+        expect(await attempt(tx, (x) => insertAddendum(x, s.draftA))).toBe("23514");
+        expect(await insertAddendum(tx, s.noteA)).toHaveLength(1);
       });
     });
   });
