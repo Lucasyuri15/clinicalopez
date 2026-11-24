@@ -1,0 +1,1 @@
+ALTER TABLE "clinical_access_log" ADD CONSTRAINT "clinical_access_log_note_check" CHECK ("clinical_access_log"."action" = 'read_history' or "clinical_access_log"."note_id" is not null);

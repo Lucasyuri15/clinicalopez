@@ -239,6 +239,41 @@
       "when": 1795452076900,
       "tag": "0033_waitlist_fulfil_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1795529223741,
+      "tag": "0034_clinical_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1795529333194,
+      "tag": "0035_clinical_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1795529614865,
+      "tag": "0036_clinical_write_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1795530130249,
+      "tag": "0037_clinical_log_note_check",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1795530130538,
+      "tag": "0038_clinical_log_policy",
+      "breakpoints": true
     }
   ]
 }

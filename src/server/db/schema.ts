@@ -676,6 +676,9 @@ export const appointments = pgTable(
       ],
     }).onDelete("restrict"),
     index("appointments_series_idx").on(table.seriesId, table.startsAt),
+    // Alvo da FK composta do prontuário (Fase 4A): o banco garante que a evolução tem o mesmo
+    // paciente e o mesmo profissional do atendimento.
+    unique("appointments_identity_uq").on(table.id, table.patientId, table.professionalId),
   ],
 ).enableRLS();
 
@@ -778,5 +781,118 @@ export const waitlistEntries = pgTable(
       .where(sql`${table.status} = 'waiting'`),
     index("waitlist_entries_status_idx").on(table.status, table.createdAt),
     index("waitlist_entries_patient_idx").on(table.patientId),
+  ],
+).enableRLS();
+
+export const clinicalNoteStatus = pgEnum("clinical_note_status", ["draft", "finalized"]);
+
+export type ClinicalNoteStatus = (typeof clinicalNoteStatus.enumValues)[number];
+
+export const clinicalAccessAction = pgEnum("clinical_access_action", [
+  "read_note",
+  "read_history",
+  "create_note",
+  "update_draft",
+  "finalize",
+  "add_addendum",
+]);
+
+export type ClinicalAccessAction = (typeof clinicalAccessAction.enumValues)[number];
+
+/** Texto clínico: de 1 a `max` caracteres, com algum não-espaço e sem controle (exceto tab e quebras de linha). */
+const clinicalText = (column: AnyPgColumn, max: number) =>
+  sql`char_length(${column}) between 1 and ${sql.raw(String(max))} and ${column} ~ '\\S' and ${column} !~ '[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]'`;
+
+/**
+ * Evolução clínica (Fase 4A): UMA por atendimento Realizado, escrita pelo profissional do atendimento.
+ * DADO DE SAÚDE SENSÍVEL (LGPD): só o AUTOR e o admin leem; recepção sem política; o texto nunca vai
+ * a log, URL ou erro. `draft` é editável pelo autor; `finalized` é TRANCADA por gatilho (nem o autor
+ * altera: correção só por adendo). `finalized_*` vêm do banco. Sem DELETE para ninguém. A linha só
+ * nasce no primeiro salvamento com texto (nunca há rascunho vazio). A FK composta garante que o
+ * paciente e o profissional são os do atendimento.
+ */
+export const clinicalNotes = pgTable(
+  "clinical_notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    appointmentId: uuid("appointment_id").notNull(),
+    patientId: uuid("patient_id").notNull(),
+    professionalId: uuid("professional_id").notNull(),
+    body: text("body").notNull(),
+    status: clinicalNoteStatus("status").notNull().default("draft"),
+    finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+    finalizedBy: uuid("finalized_by").references(() => profiles.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "clinical_notes_appointment_fk",
+      columns: [table.appointmentId, table.patientId, table.professionalId],
+      foreignColumns: [appointments.id, appointments.patientId, appointments.professionalId],
+    }).onDelete("restrict"),
+    // Uma evolução por atendimento (o complemento é adendo).
+    unique("clinical_notes_appointment_uq").on(table.appointmentId),
+    check("clinical_notes_body_check", clinicalText(table.body, 20_000)),
+    // Finalizada ⇔ tem data e quem finalizou.
+    check("clinical_notes_finalized_check", sql`(${table.status} = 'finalized') = (${table.finalizedAt} is not null)`),
+    check("clinical_notes_finalized_by_check", sql`(${table.finalizedAt} is null) = (${table.finalizedBy} is null)`),
+    index("clinical_notes_patient_idx").on(table.patientId, table.createdAt),
+    index("clinical_notes_professional_idx").on(table.professionalId),
+  ],
+).enableRLS();
+
+/**
+ * Adendo: correção ou complemento de uma evolução JÁ FINALIZADA (o original fica intacto). Só
+ * `SELECT` e `INSERT`; `created_by` e `created_at` vêm do banco. Mesmo sigilo da evolução.
+ */
+export const clinicalNoteAddenda = pgTable(
+  "clinical_note_addenda",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    noteId: uuid("note_id")
+      .notNull()
+      .references(() => clinicalNotes.id, { onDelete: "restrict" }),
+    body: text("body").notNull(),
+    createdBy: uuid("created_by")
+      .notNull()
+      .default(sql`auth.uid()`)
+      .references(() => profiles.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("clinical_note_addenda_body_check", clinicalText(table.body, 20_000)),
+    index("clinical_note_addenda_note_idx").on(table.noteId, table.createdAt),
+  ],
+).enableRLS();
+
+/**
+ * Log de acesso ao prontuário: SÓ de inclusão (sem UPDATE nem DELETE para ninguém) e legível só pelo
+ * admin. Guarda QUEM, QUANDO, QUAL AÇÃO e qual paciente/evolução; NUNCA o texto. `user_id` e `role`
+ * vêm do banco (a política confere), não do cliente.
+ */
+export const clinicalAccessLog = pgTable(
+  "clinical_access_log",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    userId: uuid("user_id")
+      .notNull()
+      .default(sql`auth.uid()`)
+      .references(() => profiles.id, { onDelete: "restrict" }),
+    role: userRole("role")
+      .notNull()
+      .default(sql`app.current_app_role()`),
+    action: clinicalAccessAction("action").notNull(),
+    patientId: uuid("patient_id")
+      .notNull()
+      .references(() => patients.id, { onDelete: "restrict" }),
+    noteId: uuid("note_id").references(() => clinicalNotes.id, { onDelete: "restrict" }),
+  },
+  (table) => [
+    // Só a abertura do histórico vale sem evolução; as demais ações apontam para a evolução.
+    check("clinical_access_log_note_check", sql`${table.action} = 'read_history' or ${table.noteId} is not null`),
+    index("clinical_access_log_patient_idx").on(table.patientId, table.at),
+    index("clinical_access_log_at_idx").on(table.at),
   ],
 ).enableRLS();

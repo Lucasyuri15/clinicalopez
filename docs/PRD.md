@@ -95,6 +95,8 @@ Dashboard e gerenciador de agendamentos de uso **interno** para a clínica **Ló
 **Recomendação:** começar pelo fallback manual (Fase 6a) e evoluir para a **Opção A (API oficial)**, que se encaixa na Vercel. A Opção B fica descartada no MVP.
 
 ### 4.4 Prontuário / evolução clínica
+> **Fase 4A entregue (2026-11-24):** evolução em texto (rascunho e finalização trancada pelo banco), adendo e log de acesso. Cada profissional lê **só o que escreveu** (nunca pelo vínculo com o paciente); o admin lê tudo, sem escrever; a recepção não tem acesso. **Fase 4B (pendente):** anexos e a prova do consentimento. Spec: `docs/specs/2026-11-24-fase-4a-prontuario.md`.
+
 - Registro de **evolução em texto por consulta**, vinculado ao agendamento e ao paciente.
 - **Anexos** (exames, imagens, documentos) por paciente/consulta.
 - Histórico cronológico do paciente.
