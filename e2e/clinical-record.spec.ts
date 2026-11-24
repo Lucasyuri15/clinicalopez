@@ -2,6 +2,7 @@ import { expect } from "@playwright/test";
 
 import { pastStart } from "./support/agenda";
 import { readUsers, testAs } from "./support/auth";
+import { acquireLoginLock } from "./support/login-lock";
 import {
   catalogTag,
   clinicalState,
@@ -36,6 +37,17 @@ const asProfessional = testAs("professional");
 asProfessional.describe("prontuário: o profissional", () => {
   asProfessional.describe.configure({ mode: "serial" });
   asProfessional.skip(!HAS_SUPABASE, "Sem .env.local do Supabase dev: e2e de autenticação pulados.");
+
+  // O mesmo login de profissional é ligado a um profissional de teste por este spec e por outros: um de
+  // cada vez (ver `support/login-lock.ts`). Fica no beforeAll para a espera não contar no tempo do teste.
+  let releaseLogin: (() => void) | undefined;
+  asProfessional.beforeAll(async ({}, testInfo) => {
+    testInfo.setTimeout(10 * 60_000);
+    releaseLogin = await acquireLoginLock(`${testInfo.project.name}-professional`);
+  });
+  asProfessional.afterAll(() => {
+    releaseLogin?.();
+  });
 
   let tag = "";
   let seeded: Awaited<ReturnType<typeof seedProfessionals>>;
