@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { ActiveToggle } from "@/components/catalog/active-toggle";
 import { StatusBadge } from "@/components/catalog/status-badge";
+import { RecordSection } from "@/components/clinical/record-section";
 import { ConsentCard } from "@/components/patients/consent-card";
 import { NoConsentBadge } from "@/components/patients/consent-badge";
 import { PatientSheet, type EditablePatient } from "@/components/patients/patient-sheet";
@@ -18,6 +19,7 @@ import { formatAge, formatBirthDate } from "@/lib/patients/labels";
 import { formatPhone } from "@/lib/phone";
 import { requirePageAccess } from "@/server/auth/session";
 import { listInsurances } from "@/server/catalog/queries";
+import { getPatientRecord } from "@/server/clinical/queries";
 import { removePatientAction, setPatientActiveAction } from "@/server/patients/actions";
 import { listConsents } from "@/server/patients/consent-queries";
 import { getPatient, type PatientPrivateData } from "@/server/patients/queries";
@@ -61,6 +63,11 @@ export default async function PatientPage(props: PageProps<"/pacientes/[id]">) {
     ? await Promise.all([listProfessionals(actor), listInsurances(actor), listConsents(actor, patient.id)])
     : [[], [], []];
   const missingDataConsent = isStaff && lacksDataConsent(currentConsents(consents));
+
+  // O prontuário é de admin e profissional (cada profissional lê só o que escreveu): a recepção nem
+  // consulta, e a seção não existe para ela. Cada leitura grava o log de acesso na mesma transação.
+  const recordRole = user.role === "reception" ? null : user.role;
+  const record = recordRole ? await getPatientRecord({ userId: user.userId, role: recordRole }, patient.id) : null;
   const data = isStaff ? patient.private : null;
   const insuranceName = data?.insuranceId ? insurances.find((i) => i.id === data.insuranceId)?.name : undefined;
   const professionalById = new Map(professionals.map((p) => [p.id, p]));
@@ -238,6 +245,10 @@ export default async function PatientPage(props: PageProps<"/pacientes/[id]">) {
             </details>
           ) : null}
         </>
+      ) : null}
+
+      {recordRole && record ? (
+        <RecordSection role={recordRole} patientName={patient.fullName} notes={record.notes} pending={record.pending} />
       ) : null}
     </div>
   );
