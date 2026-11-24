@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import postgres from "postgres";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getPatientRecord } from "@/server/clinical/queries";
 import { openAttachment, removeAttachment, uploadAttachment } from "@/server/clinical/attachments";
@@ -112,6 +112,9 @@ describe.skipIf(!hasDb)("anexos clínicos: camada de dados (integração, Supaba
   beforeEach(async () => {
     await wipeAttachments();
   });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   const rowsOf = async () => await owner`select * from public.clinical_attachments where patient_id = ${ids.p1} order by created_at`;
   const logOf = async () =>
@@ -203,6 +206,22 @@ describe.skipIf(!hasDb)("anexos clínicos: camada de dados (integração, Supaba
       expect(await rowsOf()).toHaveLength(1);
     });
 
+    it("se desfazer o envio órfão FALHAR, avisa no log do servidor só com o caminho (UUID), sem nome nem conteúdo, e devolve o motivo certo", async () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const store = createMemoryStore();
+      expect((await send(store, pdf("igual"))).ok).toBe(true);
+      store.failNext("remove", "unavailable");
+      expect(await send(store, pdf("igual"), { name: "Nome sensível do exame.pdf" })).toEqual({ ok: false, reason: "duplicate" });
+      expect(store.objects.size).toBe(2); // o órfão ficou
+      const registered = (await rowsOf())[0]!.storage_path as string;
+      const orphan = [...store.objects.keys()].find((path) => path !== registered);
+      expect(spy).toHaveBeenCalledTimes(1);
+      const message = spy.mock.calls.map((call) => call.map(String).join(" ")).join(" ");
+      expect(message).toContain(orphan!);
+      expect(message).not.toContain("sensível");
+      expect(message).not.toContain("%PDF");
+    });
+
     it("depois de remover, o mesmo arquivo pode ser enviado de novo", async () => {
       const store = createMemoryStore();
       const first = await send(store, pdf("volta"));
@@ -277,6 +296,20 @@ describe.skipIf(!hasDb)("anexos clínicos: camada de dados (integração, Supaba
       const before = (await logOf()).length;
       expect(await openAttachment({ ...users.admin, role: "admin" }, { patientId: ids.pOut, attachmentId: id }, store)).toEqual({ ok: false, reason: "not-found" });
       expect((await logOf()).length).toBe(before);
+    });
+
+    it("o arquivo no Storage não bate com o que foi registrado (tamanho ou hash): `unavailable`, nada é devolvido", async () => {
+      const store = createMemoryStore();
+      const id = await sent(store);
+      const [row] = await rowsOf();
+      const stored = store.objects.get(row!.storage_path as string)!;
+      const original = new Uint8Array(stored.bytes);
+      stored.bytes = new Uint8Array([...original].map((byte, index) => (index === 10 ? byte ^ 0xff : byte))); // mesmo tamanho, outro conteúdo
+      expect(await openAttachment({ ...users.profA, role: "professional" }, { patientId: ids.p1, attachmentId: id }, store)).toEqual({ ok: false, reason: "unavailable" });
+      stored.bytes = original.slice(0, original.length - 1); // tamanho diferente
+      expect(await openAttachment({ ...users.profA, role: "professional" }, { patientId: ids.p1, attachmentId: id }, store)).toEqual({ ok: false, reason: "unavailable" });
+      stored.bytes = original; // íntegro volta a abrir
+      expect((await openAttachment({ ...users.profA, role: "professional" }, { patientId: ids.p1, attachmentId: id }, store)).ok).toBe(true);
     });
 
     it("o Storage falha na leitura: `unavailable` (o acesso já ficou registrado, nada é devolvido)", async () => {
