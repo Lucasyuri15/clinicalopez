@@ -795,6 +795,9 @@ export const clinicalAccessAction = pgEnum("clinical_access_action", [
   "update_draft",
   "finalize",
   "add_addendum",
+  "upload_attachment",
+  "read_attachment",
+  "remove_attachment",
 ]);
 
 export type ClinicalAccessAction = (typeof clinicalAccessAction.enumValues)[number];
@@ -867,6 +870,72 @@ export const clinicalNoteAddenda = pgTable(
 ).enableRLS();
 
 /**
+ * Anexo clínico (Fase 4B-1): exame, foto ou PDF que o PROFISSIONAL anexa a um paciente (com atendimento
+ * Realizado opcional). DADO DE SAÚDE SENSÍVEL: mesmo sigilo da evolução (só o AUTOR e o admin leem;
+ * recepção sem política). O arquivo em si fica no Storage (bucket privado `clinical-attachments`),
+ * no caminho `storage_path` (só UUID, sem dado pessoal); aqui ficam os metadados. `original_name` é
+ * texto de exibição e é sensível (pode dizer o exame): nunca em log, URL ou erro. Remover é LÓGICO
+ * (`removed_*`, só o autor, uma vez): o arquivo nunca é apagado do Storage. Sem DELETE para ninguém.
+ * `professional_id` é o autor; a FK composta (só vale com atendimento informado) garante que o
+ * atendimento é do mesmo paciente e do mesmo profissional.
+ */
+export const clinicalAttachments = pgTable(
+  "clinical_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    patientId: uuid("patient_id")
+      .notNull()
+      .references(() => patients.id, { onDelete: "restrict" }),
+    professionalId: uuid("professional_id")
+      .notNull()
+      .references(() => professionals.id, { onDelete: "restrict" }),
+    appointmentId: uuid("appointment_id"),
+    storagePath: text("storage_path").notNull(),
+    originalName: text("original_name").notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    sha256: text("sha256").notNull(),
+    createdBy: uuid("created_by")
+      .notNull()
+      .default(sql`auth.uid()`)
+      .references(() => profiles.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    removedBy: uuid("removed_by").references(() => profiles.id, { onDelete: "restrict" }),
+  },
+  (table) => [
+    foreignKey({
+      name: "clinical_attachments_appointment_fk",
+      columns: [table.appointmentId, table.patientId, table.professionalId],
+      foreignColumns: [appointments.id, appointments.patientId, appointments.professionalId],
+    }).onDelete("restrict"),
+    unique("clinical_attachments_storage_path_uq").on(table.storagePath),
+    check(
+      "clinical_attachments_storage_path_check",
+      sql`${table.storagePath} ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`,
+    ),
+    check(
+      "clinical_attachments_name_check",
+      sql`char_length(${table.originalName}) between 1 and 120 and ${table.originalName} ~ '\\S' and ${table.originalName} !~ '[\\x01-\\x1f\\x7f]'`,
+    ),
+    check(
+      "clinical_attachments_type_check",
+      sql`${table.contentType} in ('application/pdf', 'image/jpeg', 'image/png', 'image/webp')`,
+    ),
+    check("clinical_attachments_size_check", sql`${table.sizeBytes} between 1 and 4194304`),
+    check("clinical_attachments_sha256_check", sql`${table.sha256} ~ '^[0-9a-f]{64}$'`),
+    check("clinical_attachments_removed_check", sql`(${table.removedAt} is null) = (${table.removedBy} is null)`),
+    index("clinical_attachments_patient_idx").on(table.patientId, table.createdAt),
+    index("clinical_attachments_professional_idx").on(table.professionalId),
+    // O mesmo arquivo (mesmo conteúdo) não é anexado duas vezes ao mesmo paciente pelo mesmo autor
+    // enquanto o primeiro não foi removido: pega o duplo clique e a corrida de envios iguais.
+    uniqueIndex("clinical_attachments_dedupe_uq")
+      .on(table.patientId, table.professionalId, table.sha256)
+      .where(sql`${table.removedAt} is null`),
+  ],
+).enableRLS();
+
+/**
  * Log de acesso ao prontuário: SÓ de inclusão (sem UPDATE nem DELETE para ninguém) e legível só pelo
  * admin. Guarda QUEM, QUANDO, QUAL AÇÃO e qual paciente/evolução; NUNCA o texto. `user_id` e `role`
  * vêm do banco (a política confere), não do cliente.
@@ -888,10 +957,19 @@ export const clinicalAccessLog = pgTable(
       .notNull()
       .references(() => patients.id, { onDelete: "restrict" }),
     noteId: uuid("note_id").references(() => clinicalNotes.id, { onDelete: "restrict" }),
+    /** Anexo clínico (4B-1): só nas ações de anexo. */
+    attachmentId: uuid("attachment_id").references(() => clinicalAttachments.id, { onDelete: "restrict" }),
   },
   (table) => [
-    // Só a abertura do histórico vale sem evolução; as demais ações apontam para a evolução.
-    check("clinical_access_log_note_check", sql`${table.action} = 'read_history' or ${table.noteId} is not null`),
+    // Cada ação aponta para o que precisa: o histórico, para nada; as de evolução, para a evolução; as
+    // de anexo, para o anexo. (`::text` porque um valor de enum recém-criado não pode ser usado na
+    // mesma transação da migração que o cria.)
+    check(
+      "clinical_access_log_target_check",
+      sql`(${table.action}::text = 'read_history' and ${table.noteId} is null and ${table.attachmentId} is null)
+        or (${table.action}::text in ('read_note', 'create_note', 'update_draft', 'finalize', 'add_addendum') and ${table.noteId} is not null and ${table.attachmentId} is null)
+        or (${table.action}::text in ('upload_attachment', 'read_attachment', 'remove_attachment') and ${table.attachmentId} is not null and ${table.noteId} is null)`,
+    ),
     index("clinical_access_log_patient_idx").on(table.patientId, table.at),
     index("clinical_access_log_at_idx").on(table.at),
   ],

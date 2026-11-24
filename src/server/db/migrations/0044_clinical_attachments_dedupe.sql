@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "clinical_attachments_dedupe_uq" ON "clinical_attachments" USING btree ("patient_id","professional_id","sha256") WHERE "clinical_attachments"."removed_at" is null;
