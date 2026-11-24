@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
  *     tabelas clínicas: um caminho de leitura novo, fora daqui, ficaria sem log;
  *  2. toda função exportada das consultas e das gravações chama `recordAccess`.
  */
-const TABLES = /\b(clinicalNotes|clinicalNoteAddenda|clinicalAccessLog|clinical_notes|clinical_note_addenda|clinical_access_log)\b/;
+const TABLES = /\b(clinicalNotes|clinicalNoteAddenda|clinicalAccessLog|clinicalAttachments|clinical_notes|clinical_note_addenda|clinical_access_log|clinical_attachments)\b/;
 const ALLOWED_DIRS = [join("src", "server", "clinical"), join("src", "server", "db")];
 
 /** Funções exportadas (`export [async] function nome`) e o texto do corpo até a próxima exportação. */
@@ -64,7 +64,7 @@ export type Tipo = string;`;
     expect(offenders).toEqual([]);
   });
 
-  it.each(["queries.ts", "mutations.ts"])("toda função exportada de %s registra o acesso", (name) => {
+  it.each(["queries.ts", "mutations.ts", "attachments.ts"])("toda função exportada de %s registra o acesso", (name) => {
     const source = readFileSync(join(process.cwd(), "src", "server", "clinical", name), "utf8");
     expect(exportedFunctions(source).length).toBeGreaterThan(0);
     expect(withoutAccessLog(source)).toEqual([]);
