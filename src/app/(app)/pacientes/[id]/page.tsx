@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { ActiveToggle } from "@/components/catalog/active-toggle";
 import { StatusBadge } from "@/components/catalog/status-badge";
+import { AttachmentsSection } from "@/components/clinical/attachments-section";
 import { RecordSection } from "@/components/clinical/record-section";
 import { ConsentCard } from "@/components/patients/consent-card";
 import { NoConsentBadge } from "@/components/patients/consent-badge";
@@ -249,6 +250,15 @@ export default async function PatientPage(props: PageProps<"/pacientes/[id]">) {
 
       {recordRole && record ? (
         <RecordSection role={recordRole} patientName={patient.fullName} notes={record.notes} pending={record.pending} />
+      ) : null}
+      {recordRole && record ? (
+        <AttachmentsSection
+          role={recordRole}
+          patientId={patient.id}
+          patientName={patient.fullName}
+          attachments={record.attachments}
+          doneAppointments={record.doneAppointments}
+        />
       ) : null}
     </div>
   );
