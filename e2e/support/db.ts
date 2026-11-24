@@ -559,6 +559,14 @@ export async function deletePatients(tag: string): Promise<void> {
   try {
     await sql.begin(async (tx) => {
       const like = `${tag}%`;
+      // Prontuário primeiro: log, adendos e evoluções referenciam o paciente e o atendimento (FK restrict).
+      await tx`delete from public.clinical_access_log where patient_id in
+        (select id from public.patients where full_name like ${like})`;
+      await tx`delete from public.clinical_note_addenda where note_id in
+        (select id from public.clinical_notes where patient_id in
+          (select id from public.patients where full_name like ${like}))`;
+      await tx`delete from public.clinical_notes where patient_id in
+        (select id from public.patients where full_name like ${like})`;
       // Esperas primeiro: referenciam o paciente e o atendimento (FK restrict).
       await tx`delete from public.waitlist_entries where patient_id in
         (select id from public.patients where full_name like ${like})`;
@@ -928,6 +936,88 @@ export async function seedWaitlistEntry(input: {
         returning id`;
       return row!.id as string;
     });
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+/** Vincula um paciente a mais um profissional (o paciente compartilhado entre dois profissionais). */
+export async function linkPatient(patientName: string, professionalName: string): Promise<void> {
+  for (const name of [patientName, professionalName]) {
+    if (!TAGGED_NAME.test(name)) throw new Error("Recusado: só uso nomes de e2e etiquetados.");
+  }
+  const sql = connect();
+  try {
+    await sql`insert into public.patient_professionals (patient_id, professional_id)
+      select p.id, pr.id from public.patients p, public.professionals pr
+      where p.full_name = ${patientName} and pr.full_name = ${professionalName}
+      on conflict do nothing`;
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+/**
+ * Semeia uma EVOLUÇÃO como DONO do banco no atendimento (Realizado) indicado. `authorProfileId` é o
+ * perfil de um usuário fictício (preenche `finalized_by` quando finalizada; apagar o usuário não deve
+ * deixar linha clínica para trás: `deletePatients` as apaga antes). Só atendimentos de pacientes
+ * etiquetados. Opcionalmente um adendo.
+ */
+export async function seedClinicalNote(input: {
+  appointmentId: string;
+  body: string;
+  status: "draft" | "finalized";
+  authorProfileId: string;
+  addendum?: string;
+}): Promise<string> {
+  const sql = connect();
+  try {
+    return await sql.begin(async (tx) => {
+      const [appointment] = await tx`select a.id, a.patient_id, a.professional_id, p.full_name as patient
+        from public.appointments a join public.patients p on p.id = a.patient_id where a.id = ${input.appointmentId}`;
+      if (!appointment || !TAGGED_NAME.test(appointment.patient as string)) throw new Error("Recusado: só uso atendimentos de e2e etiquetados.");
+      const finalized = input.status === "finalized";
+      const [note] = await tx`insert into public.clinical_notes
+        (appointment_id, patient_id, professional_id, body, status, finalized_at, finalized_by)
+        values (${appointment.id}, ${appointment.patient_id}, ${appointment.professional_id}, ${input.body}, ${input.status},
+          ${finalized ? new Date() : null}, ${finalized ? input.authorProfileId : null})
+        returning id`;
+      if (input.addendum) {
+        await tx`insert into public.clinical_note_addenda (note_id, body, created_by)
+          values (${note!.id}, ${input.addendum}, ${input.authorProfileId})`;
+      }
+      return note!.id as string;
+    });
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+export type ClinicalState = {
+  notes: { patient: string; professional: string; status: "draft" | "finalized"; body: string; addenda: string[] }[];
+  log: { action: string; role: string }[];
+};
+
+/** Estado REAL gravado do prontuário e do log dos pacientes do teste (para provar o que a tela gravou). */
+export async function clinicalState(tag: string): Promise<ClinicalState> {
+  if (!/^\[e2e-cat [0-9a-f]{8}\]$/.test(tag)) throw new Error("Recusado: etiqueta de e2e inválida.");
+  const sql = connect();
+  try {
+    const like = `${tag}%`;
+    const notes = await sql`
+      select pa.full_name as patient, pr.full_name as professional, n.status, n.body,
+        coalesce((select array_agg(a.body order by a.created_at) from public.clinical_note_addenda a where a.note_id = n.id), '{}') as addenda
+      from public.clinical_notes n
+      join public.patients pa on pa.id = n.patient_id
+      join public.professionals pr on pr.id = n.professional_id
+      where pa.full_name like ${like}
+      order by n.created_at`;
+    const log = await sql`
+      select l.action, l.role from public.clinical_access_log l
+      join public.patients pa on pa.id = l.patient_id
+      where pa.full_name like ${like}
+      order by l.id`;
+    return { notes: notes as unknown as ClinicalState["notes"], log: log as unknown as ClinicalState["log"] };
   } finally {
     await sql.end({ timeout: 2 });
   }
