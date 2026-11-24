@@ -130,7 +130,10 @@ export async function uploadAttachment(
     });
     return { ok: true, attachmentId };
   } catch (error) {
-    await store.remove(path); // o banco não registrou: não deixa o arquivo órfão
+    // O banco não registrou: não deixa o arquivo órfão. Se nem isso der certo, o arquivo fica sem linha
+    // (ilegível para todos) e só o caminho (UUID, sem dado pessoal) vai ao log para a limpeza futura.
+    const removed = await store.remove(path);
+    if (!removed.ok) console.error(`Storage: envio órfão sem registro no banco (caminho ${path}).`);
     return toFailure(error);
   }
 }
@@ -145,7 +148,7 @@ export async function openAttachment(
   store: AttachmentStore,
 ): Promise<OpenResult> {
   if (user.role === "reception" || !isUuid(input.attachmentId) || !isUuid(input.patientId)) return { ok: false, reason: "not-found" };
-  let row: { storagePath: string; contentType: string; originalName: string } | null;
+  let row: { storagePath: string; contentType: string; originalName: string; sizeBytes: number; sha256: string } | null;
   try {
     row = await withUser(user, async (tx) => {
       const [found] = await tx
@@ -155,6 +158,8 @@ export async function openAttachment(
           storagePath: clinicalAttachments.storagePath,
           contentType: clinicalAttachments.contentType,
           originalName: clinicalAttachments.originalName,
+          sizeBytes: clinicalAttachments.sizeBytes,
+          sha256: clinicalAttachments.sha256,
           removedAt: clinicalAttachments.removedAt,
         })
         .from(clinicalAttachments)
@@ -171,6 +176,10 @@ export async function openAttachment(
 
   const got = await store.get(row.storagePath);
   if (!got.ok) return { ok: false, reason: "unavailable" };
+  // O que veio do Storage tem de ser exatamente o que foi registrado no envio (tamanho e hash).
+  if (got.value.length !== row.sizeBytes || createHash("sha256").update(got.value).digest("hex") !== row.sha256) {
+    return { ok: false, reason: "unavailable" };
+  }
   return { ok: true, file: { bytes: got.value, contentType: row.contentType as AttachmentType, name: row.originalName } };
 }
 

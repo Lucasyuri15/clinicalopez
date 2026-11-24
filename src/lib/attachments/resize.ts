@@ -19,6 +19,9 @@ export async function downscaleImage(file: File): Promise<File> {
     canvas.height = height;
     const context = canvas.getContext("2d");
     if (!context) return file;
+    // JPEG não tem transparência: sem o fundo branco, uma imagem transparente (PNG) viraria preta.
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, width, height);
     context.drawImage(bitmap, 0, 0, width, height);
     bitmap.close();
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
