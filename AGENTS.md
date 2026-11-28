@@ -105,6 +105,44 @@ drizzle.config.ts   config do drizzle-kit (usa DIRECT_URL e a trava de projeto)
 - **Commits:** Conventional Commits (`feat:`, `fix:`, `chore:`…), pequenos e focados.
 - Prefira código simples e dependências já presentes; justifique qualquer biblioteca nova.
 
+## Skills
+Skills de terceiros copiadas para `.claude/skills/`, **sem rodar instaladores** (`npx` ou plugin) e versionadas aqui: atualizar é baixar de novo e **ler o diff** antes de integrar. **Elas ficam abaixo deste arquivo:** em conflito, valem as Convenções e as Proibições, `docs/brand/` e os tokens do tema.
+
+### antislop
+Regras contra "cara de IA" em UI e código, de [miqdadbadjuber/anti-slop](https://github.com/miqdadbadjuber/anti-slop) (MIT, v3.2.33). Nunca `npx antislop-ai --update` às cegas.
+
+| Skill | Use quando |
+|---|---|
+| `antislop` | Núcleo: carregue junto com qualquer uma das outras. |
+| `antislop-ui` | Criar ou alterar tela, componente, cor, espaçamento ou movimento. |
+| `antislop-human` | Acessibilidade: contraste, teclado, foco, estados (WCAG AA). |
+| `antislop-layoutmobile` | Layout responsivo: quebra de grade, overflow, alvos de toque de 44px, menu no celular. |
+| `antislop-code` | Revisar comentários de código (só comentários: nunca altera o código). |
+
+- **Marca e stack não mudam:** a skill não troca a marca (amarelo `#F7CB2C` + preto `#111111`) nem a stack (shadcn/ui).
+- **Sem telemetria:** ignore a recomendação de coletar Web Vitals em produção em `antislop-ui/references/CORE-WEB-VITALS.md`; a proibição de analytics das Proibições prevalece.
+- **Contraste:** `antislop-human` traz `contrast-check.py` (precisa de Python 3; no Windows, `python`). Exemplo: `python .claude/skills/antislop-human/contrast-check.py "#111111" "#F7CB2C"` (12,17:1, passa); amarelo sobre branco dá 1,55:1 e reprova. Rode o `--selftest` após atualizar a skill.
+- **Modo do núcleo (`during`/`after`):** o núcleo pergunta o modo na primeira ativação de cada sessão, até haver preferência salva em `%APPDATA%\antislop\settings.json` (campo `mode`; é preferência pessoal, fora do repositório).
+- **Comentários e textos em pt-BR:** os exemplos das skills são em inglês; aplique o princípio (comentário explica o porquê, sem banners nem narração de passos), não a frase literal.
+
+### Vercel (React)
+De [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) (o repositório não traz arquivo de licença; só o frontmatter diz `license: MIT`). Copiados só `SKILL.md` e `rules/` (sem o `AGENTS.md` compilado, que repete as regras e se confundiria com este arquivo).
+
+| Skill | Use quando |
+|---|---|
+| `react-best-practices` | Escrever ou revisar componente, página ou busca de dados: cascatas assíncronas, bundle, Suspense, o que vai ao cliente, re-render. |
+| `composition-patterns` | Componente com muitas props booleanas, componente composto, estado compartilhado entre irmãos (ex.: gavetas da agenda). |
+
+**Regras que NÃO valem aqui** (conflitam com as Convenções e Proibições):
+- `server-cache-lru` e `js-cache-function-results`: cache em memória entre requisições. Dado de paciente/agenda nunca em cache compartilhado, e isso contornaria a RLS por usuário. O `React.cache()` (por requisição, como em `session.ts`) é permitido.
+- `client-swr-dedup` e `async-dependencies`: pedem SWR e `better-all`; o projeto usa Server Actions e RSC, e biblioteca nova exige justificativa.
+- `bundle-defer-third-party`: trata de analytics; telemetria é proibida.
+- `server-after-nonblocking`: `after()` **nunca** para log de acesso ao prontuário ou auditoria (precisam ser garantidos, na mesma transação).
+- `rendering-hydration-no-flicker`, `rendering-script-defer-async`, `rendering-resource-hints`: script inline exige o nonce da CSP (`script-src` sem `unsafe-inline`) e domínio externo exige a CSP e aprovação.
+- `client-localstorage-schema`: nunca PII nem dado de saúde no navegador.
+- `js-*` e `advanced-*` (microotimizações): só com problema medido.
+- **APIs do Next:** as regras de Next (`after()`, `next/dynamic`, `next/script`...) foram escritas fora desta versão (16.4.5). Antes de aplicar uma, confira `node_modules/next/dist/docs/` (bloco ao final deste arquivo).
+
 ## Fluxo de trabalho
 Adaptado do workflow do projeto [Superpowers](https://github.com/obra/superpowers) (só a metodologia; o plugin não é dependência).
 
